@@ -41,7 +41,7 @@ num_trig_basis = 3
 Nt = 10          # number of time stamps
 Nx = 500         # batch size for taining
 N_valid = 300    # number of spatial samples for validation
-net_size = 30    # width of the network
+net_size = 10    # width of the network
 
 
 # corresponding qunantities needed
@@ -60,7 +60,7 @@ def V_grad(t,x): # gradient of V
 # def g(x): # terminal cost
 #     return np.sum(beta_np * np.sin(np.pi*x), axis=-1, keepdims=True)
 
-def g(x): # terminal cost pytorh
+def g(x): # terminal cost torch
     return torch.sum(beta_pt * torch.sin(torch.pi*x), dim=-1, keepdim=True)
 
 # def r(x,u): # running cost

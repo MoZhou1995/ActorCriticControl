@@ -32,10 +32,11 @@ beta_pt = torch.tensor(beta, dtype=data_type, device=device)
 assert len(beta) == d, "beta does not match dimension"
 
 # training parameters
-num_steps = 3
-learning_rate = 0.1
+num_steps = 300
+learning_rate = 0.01
+delta_tau = 0.1
 milestones = [100,200]
-decay = 0.5
+decay = 5 # increase the learning rate due to flatness
 num_trig_basis = 3
 
 # set grid
@@ -109,7 +110,7 @@ class Control_net(nn.Module): # net for the control
     def forward(self, t, x):
         # x is N x d, output is N x 1
         kx = x.unsqueeze(1).expand(-1, num_trig_basis, -1) \
-            * torch.arange(1,num_trig_basis+1).unsqueeze(1)
+            * torch.arange(1,num_trig_basis+1,device=device).unsqueeze(1)
         kx = kx.view(-1,num_trig_basis*self.dim)
         tx = torch.cat((t,torch.sin(kx),torch.cos(kx)), dim=-1)
         NN_out = self.linear1(tx)
@@ -136,61 +137,8 @@ dW_t_valid = torch.normal(0, sqrt_dt, size=(Nt, N_valid, d_w)).to(device)
 
 
 
-# ========== construct functions to operate parameters ==========
-
-# recognize and record shapes of net parameters
-# vectorize parameter of network and the inverse operation
-# compute jacobian of net w.r.t. parameters for single input
-# assign the gradient to Adam optimizer
-
-
-def para_collect(paras): # record the organization of parameters
-    shapes = []
-    for para in paras:
-        shape = para.size()
-        len_para = np.prod(shape)
-        shapes.append([len_para,shape])
-    return shapes
-
-def paras2vec(paras, shapes): # vectorize the parameter, shape from para_collect
-    for idx,para in enumerate(paras):
-        assert para.size() == shapes[idx][1], "parameter does not match dimension"
-        if idx == 0:
-            paras_vec = para.reshape(-1)
-        else:
-            paras_vec = torch.cat((paras_vec,para.reshape(-1)))
-    return paras_vec
-
-def vec2paras(paras_vec, shapes): # inverse of para2vec, shape from para_collect
-    idx = 0
-    paras = []
-    for shape in shapes:
-        para = paras_vec[idx:idx+shape[0]].view(shape[1])
-        paras.append(para)
-        idx = idx + shape[0]
-    return paras
-
-def assign_grad(net, delta_theta, shapes): # don't forget zero_grad
-    # assigning gradient to the parameters
-    for idx,para in enumerate(net.parameters()):
-        assert para.size() == shapes[idx][1], "parameter does not match dimension"
-        para.grad = -delta_theta[idx] # gradient descent -> negative sign
-    return
-
-def compute_jacobian(output, net, shapes): # compute the jacobian for a single sample
-    for i in range(d_c):
-        grad_i = torch.autograd.grad(output[i], net.parameters(),retain_graph=True)
-        grad_i = paras2vec(grad_i, shapes).unsqueeze(0)
-        if i == 0:
-            jacobian = grad_i
-        else:
-            jacobian = torch.cat((jacobian,grad_i),dim=0)
-    return jacobian # shape d_c x num_paras
-
 actor_optimizer = torch.optim.Adam(Control_NN.parameters(), lr=learning_rate)
-shapes = para_collect(Control_NN.parameters())
 actor_scheduler = MultiStepLR(actor_optimizer, milestones=milestones, gamma=decay)
-
 
 # print(list(Control_NN.parameters()))
 # paras_vec = paras2vec(Control_NN.parameters(), shapes)
@@ -200,6 +148,7 @@ actor_scheduler = MultiStepLR(actor_optimizer, milestones=milestones, gamma=deca
 # actor_optimizer.step()
 # print(list(Control_NN.parameters()))
 
+# ========== define training process ==========
 
 def train(Control_NN,actor_optimizer,actor_scheduler):
     start_time = time.time()
@@ -209,46 +158,46 @@ def train(Control_NN,actor_optimizer,actor_scheduler):
         actor_optimizer.zero_grad()
         # start to sample the trajectory
         x0 = np.random.uniform(0,1,[Nx,d])
-        x = torch.tensor(x0, dtype=data_type, device=device, requires_grad=True)
         dW_t = torch.normal(0, sqrt_dt, size=(Nt, Nx, d_w)).to(device)
-        u = Control_NN(torch.zeros(Nx,1).to(device), x) # shape Nx x dc
-        jacobian_list_t = [compute_jacobian(u[i], Control_NN, shapes) for i in range(Nx)]
-        grad_G = - V_grad_pt(0, x) - u # shape Nx x d_c
-        sum_utheta_sq = torch.sum(torch.stack( [torch.matmul(torch.t(jacobian), jacobian)
-                 for jacobian in jacobian_list_t] ),dim=0) # shape num_paras x num_paras
-        sum_utheta_gradG = torch.sum(torch.stack( [torch.matmul(torch.t(jacobian), grad_G[i,:])
-                 for i, jacobian in enumerate(jacobian_list_t)] ),dim=0) # shape num_paras
+        x = torch.zeros(Nt+1,Nx,d, dtype=data_type, device=device)
+        x[0,:,:] = torch.tensor(x0, dtype=data_type, device=device)
+        u_tgt = torch.zeros(Nt,Nx,d_c, dtype=data_type, device=device)
+        J = 0 # loss function
         for t_idx in range(Nt):
             t = t_idx*dt
-            u = Control_NN(t*torch.ones(Nx,1).to(device),x)
-            drift_x = b_x(x,u)
-            diffusion_x = diffu_x(x, dW_t[t_idx,:,:])
-            x = x + drift_x * dt + diffusion_x
-            grad_G = - V_grad_pt(t, x) - u
-            jacobian_list_t = [compute_jacobian(u[i], Control_NN, shapes) for i in range(Nx)]
-            sum_utheta_sq = sum_utheta_sq + torch.sum(torch.stack( [torch.matmul(
-                torch.t(jacobian), jacobian) for jacobian in jacobian_list_t] ),dim=0)
-            sum_utheta_gradG = sum_utheta_gradG + torch.sum(torch.stack( [torch.matmul(torch.t(jacobian),
-                grad_G[i,:]) for i, jacobian in enumerate(jacobian_list_t)] ),dim=0)
-        delta_theta_vec = torch.linalg.solve(sum_utheta_sq, sum_utheta_gradG) # selta_tau and alpha_a are not multiplied
-        delta_theta_paras = vec2paras(delta_theta_vec, shapes)
-        assign_grad(Control_NN, delta_theta_paras, shapes) # note the negative sign is in assign_grad  
-        actor_optimizer.step() # update the parameters
+            u = Control_NN(t*torch.ones(Nx,1).to(device),x[t_idx,:,:]) # shape Nx x dc
+            x[t_idx+1,:,:] = x[t_idx,:,:] + b_x(x[t_idx,:,:], u)* dt + diffu_x(x[t_idx,:,:], dW_t[t_idx,:,:])
+            Grad_G = - V_grad_pt(t, x[t_idx,:,:]) - u # shape Nx x d_c
+            u_tgt[t_idx,:,:] = (u + delta_tau*Grad_G).detach() # target control for update
+            J = J + dt*torch.mean(r(x[t_idx,:,:],u))
+        J = J + torch.mean(g(x[Nt,:,:])) # add terminal cost
+        loss = 0
+        for t_idx in range(Nt):
+            loss = loss + torch.mean((Control_NN(t_idx*dt*torch.ones(Nx,1).to(device),x[t_idx,:,:]) - u_tgt[t_idx,:,:])**2)
+        loss.backward()
+        actor_optimizer.step()
         actor_scheduler.step() # update the learning rate
-        if step % 1 == 0: # print the error
+        if step % 10 == 0: # print the error
             # compute validation error
-            x = x0_valid_pt
+            x_val = x0_valid_pt
             err = 0
             norm_sq = 0
+            J = 0
+            loss_check = 0
             for i in range(Nt):
                 t = i*dt
-                u = Control_NN(t*torch.ones(N_valid,1).to(device),x)
-                u_true = u_star_pt(t,x)
+                loss_check = loss_check + torch.mean((Control_NN(t*torch.ones(Nx,1).to(device),x[i,:,:]) - u_tgt[i,:,:])**2)
+                u = Control_NN(t*torch.ones(N_valid,1).to(device),x_val)
+                u_true = u_star_pt(t,x_val)
                 err = err + torch.sum((u - u_true)**2)
                 norm_sq = norm_sq + torch.sum(u_true**2)
-                x = x + b_x(x, u)* dt + diffu_x(x, dW_t_valid[i,:,:])
+                x_val = x_val + b_x(x_val, u)* dt + diffu_x(x_val, dW_t_valid[i,:,:])
+                J = J + dt*torch.mean(r(x_val,u))
+            print("loss", np.around(loss.item(),decimals=10),"new loss", np.around(loss_check.item(),decimals=10))
             err = torch.sqrt(err / norm_sq)
-            print("step: ", step, "error: ", err.item(), "time", np.around(time.time() - start_time,decimals=1))
+            J = J + torch.mean(g(x_val))
+            print("step:", step, "error:", np.around(err.item(),decimals=4),"J", 
+                  np.around(J.item(),decimals=8),"time", np.around(time.time() - start_time,decimals=1))
     return
 
 # ========== test the algorithm ==========
