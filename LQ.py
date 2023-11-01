@@ -10,7 +10,7 @@ import os
 data_type = torch.float64
 pcs = 5
 
-seed = 1
+seed = 0
 np.random.seed(seed)
 torch.manual_seed(seed)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -31,10 +31,10 @@ assert len(beta) == d, "beta does not match dimension"
 
 # training parameters
 num_steps = 300
-lr_a = 0.01
+lr_a = 0.1
 delta_tau = 0.1
 milestones_a = [100,200]
-decay_a = 5 # increase the learning rate due to flatness
+decay_a = 0.2 # increase the learning rate due to flatness
 num_trig_basis = 3
 lr_c = 0.1
 milestones_c = [100,200]
@@ -42,7 +42,7 @@ decay_c = 0.5
 num_critic_updates = 1 # number of critic updates per actor update
 
 # set grid
-Nt = 10          # number of time stamps
+Nt = 20          # number of time stamps
 Nx = 500         # batch size for taining
 N_valid = 500    # number of spatial samples for validation
 net_size_a = 3    # width of the network
@@ -226,6 +226,7 @@ def train(V0_NN,Grad_NN,Control_NN,critic_optimizer,critic_scheduler,actor_optim
         loss_actor = 0
         for t_idx in range(Nt):
             loss_actor = loss_actor + torch.mean((Control_NN(t_idx*dt*torch.ones(Nx,1).to(device),x[t_idx,:,:]) - u_tgt[t_idx,:,:])**2)
+        loss_actor = loss_actor * 100
         loss_actor.backward() # assign gradient
         actor_optimizer.step() # update actor parameters
         actor_scheduler.step()
@@ -257,7 +258,7 @@ def train(V0_NN,Grad_NN,Control_NN,critic_optimizer,critic_scheduler,actor_optim
             J = J + torch.mean(g(x_val))
             # logging the errors
             print("step", step, "J", np.around(J.item(),decimals=8),
-                "losses", np.around(loss_critic_np,decimals=pcs), np.around(loss_actor.item(),decimals=pcs),
+                "losses", np.around(loss_critic_np,decimals=pcs), np.around(loss_actor.item(),decimals=7),
                 "errors", np.around(error_y,decimals=pcs), np.around(error_z,decimals=pcs), np.around(err_actor,decimals=pcs),
                 "time", np.around(time.time() - start_time,decimals=1))
     return

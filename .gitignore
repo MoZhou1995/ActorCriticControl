@@ -1,0 +1,10 @@
+*.ipynb_checkpoints/
+/results
+*~
+*.pyc
+*.png
+*.pdf
+*.jpg
+*.eps
+.vscode/
+plot_figures.py
