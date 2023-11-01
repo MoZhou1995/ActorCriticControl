@@ -32,7 +32,8 @@ beta_pt = torch.tensor(beta, dtype=data_type, device=device)
 assert len(beta) == d, "beta does not match dimension"
 
 # training parameters
-num_steps = 300
+num_actor_update = 2
+num_steps = 30
 learning_rate = 0.01
 delta_tau = 0.1
 milestones = [100,200]
@@ -171,12 +172,16 @@ def train(Control_NN,actor_optimizer,actor_scheduler):
             u_tgt[t_idx,:,:] = (u + delta_tau*Grad_G).detach() # target control for update
             J = J + dt*torch.mean(r(x[t_idx,:,:],u))
         J = J + torch.mean(g(x[Nt,:,:])) # add terminal cost
-        loss = 0
-        for t_idx in range(Nt):
-            loss = loss + torch.mean((Control_NN(t_idx*dt*torch.ones(Nx,1).to(device),x[t_idx,:,:]) - u_tgt[t_idx,:,:])**2)
-        loss.backward()
-        actor_optimizer.step()
-        actor_scheduler.step() # update the learning rate
+        x_detach=x.detach()
+        for actor_step in range(num_actor_update):
+            loss = 0
+            actor_optimizer.zero_grad()
+            for t_idx in range(Nt):
+                loss = loss + torch.mean((Control_NN(t_idx*dt*torch.ones(Nx,1).to(device),x_detach[t_idx,:,:]) - u_tgt[t_idx,:,:])**2)
+            loss.backward()
+            actor_optimizer.step()
+            
+        # actor_scheduler.step() # update the learning rate
         if step % 10 == 0: # print the error
             # compute validation error
             x_val = x0_valid_pt
