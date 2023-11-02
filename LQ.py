@@ -41,7 +41,7 @@ lr_c = 0.05
 milestones_c = [100,200]
 decay_c = 0.1
 num_critic_updates = 1 # number of critic updates per actor update
-num_actor_updates = 5 # number of actor updates per critic update
+num_actor_updates = 1 # number of actor updates per critic update
 
 # set grid
 Nt = 20          # number of time stamps
@@ -57,31 +57,31 @@ sqrt_dt = np.sqrt(dt)
 # define the ground true fucntions
 def V(t,x): # true value function in numpy
     # x is N x d; V is N x 1
-    temp = np.sum(beta_np * np.sin(np.pi*x), axis=-1, keepdims=True)
+    temp = np.sum(beta_np * np.sin(x), axis=-1, keepdims=True)
     return temp + beta0 * (T-t)
 
 def V_grad(t,x): # gradient of V
-    return np.pi * beta_np * np.cos(np.pi * x)
+    return beta_np * np.cos(x)
 
 # def g(x): # terminal cost
-#     return np.sum(beta_np * np.sin(np.pi*x), axis=-1, keepdims=True)
+#     return np.sum(beta_np * np.sin(x), axis=-1, keepdims=True)
 
 def g(x): # terminal cost pytorch
-    return torch.sum(beta_pt * torch.sin(torch.pi*x), dim=-1, keepdim=True)
+    return torch.sum(beta_pt * torch.sin(x), dim=-1, keepdim=True)
 
 # def r(x,u): # running cost
-#     temp = np.sum(sigma_bar**2 * beta_np * np.sin(np.pi*x) + beta_np**2 * np.cos(np.pi*x)**2, axis=-1, keepdims=True)
-#     return np.pi**2 * temp / 2 + beta0 + np.sum(u**2, axis=-1, keepdims=True)
+#     temp = np.sum(sigma_bar**2 * beta_np * np.sin(x) + beta_np**2 * np.cos(x)**2, axis=-1, keepdims=True)
+#     return temp / 2 + beta0 + np.sum(u**2, axis=-1, keepdims=True) /2
 
 def r(x,u): # running cost, torch
-    temp = torch.sum(sigma_bar**2 * beta_pt * torch.sin(torch.pi*x) + beta_pt**2 * torch.cos(torch.pi*x)**2, dim=-1, keepdim=True)
-    return torch.pi**2 * temp / 2 + beta0 + torch.sum(u**2, dim=-1, keepdim=True)
+    temp = torch.sum(sigma_bar**2 * beta_pt * torch.sin(x) + beta_pt**2 * torch.cos(x)**2, dim=-1, keepdim=True)
+    return temp / 2 + beta0 + torch.sum(u**2, dim=-1, keepdim=True)/2
 
 def u_star(t,x): # optimal control
-    return -np.pi * beta_np * np.cos(np.pi * x)
+    return - beta_np * np.cos(x)
 
 def u_star_pt(t,x): # optimal control in torch
-    return -torch.pi * beta_pt * torch.cos(torch.pi * x)
+    return - beta_pt * torch.cos(x)
 
 def b_x(x,u): # drift for x, N x d, torch
     return u
@@ -169,7 +169,7 @@ scheduler_c = MultiStepLR(optimizer_c, milestones=milestones_c, gamma=decay_c)
 loss_fn = nn.MSELoss()
 
 # define the validation data
-x_valid = np.random.uniform(0,1,[N_valid,d])
+x_valid = np.random.uniform(0,2*np.pi,[N_valid,d])
 x_valid_pt = torch.tensor(x_valid, dtype=data_type, device=device)
 dW_t_valid = torch.normal(0, sqrt_dt, size=(Nt, N_valid, d_w)).to(device)
 V0_true = V(0,x_valid)
@@ -188,7 +188,7 @@ def train(V0_NN,Grad_NN,Control_NN,critic_optimizer,critic_scheduler,actor_optim
         for _ in range(num_critic_updates):
             # update the critic num_critic_updates times
             critic_optimizer.zero_grad()
-            x0 = np.random.uniform(0,1,[Nx,d])
+            x0 = np.random.uniform(0,2*np.pi,[Nx,d])
             dW_t = torch.normal(0, sqrt_dt, size=(Nt, Nx, d_w)).to(device)
             xt = torch.tensor(x0, dtype=data_type, device=device, requires_grad=True)
             yt = V0_NN(xt)
@@ -210,7 +210,7 @@ def train(V0_NN,Grad_NN,Control_NN,critic_optimizer,critic_scheduler,actor_optim
 
         # start actor training
         actor_optimizer.zero_grad()
-        x0 = np.random.uniform(0,1,[Nx,d])
+        x0 = np.random.uniform(0,2*np.pi,[Nx,d])
         dW_t = torch.normal(0, sqrt_dt, size=(Nt, Nx, d_w)).to(device)
         x = torch.zeros(Nt+1,Nx,d, dtype=data_type, device=device)
         x[0,:,:] = torch.tensor(x0, dtype=data_type, device=device)
@@ -227,31 +227,17 @@ def train(V0_NN,Grad_NN,Control_NN,critic_optimizer,critic_scheduler,actor_optim
         J = J + torch.mean(g(x[Nt,:,:])) # add terminal cost
         x_detach=x.detach()
         for actor_step in range(num_actor_updates):
-            # # update the actor num_actor_updates times
-            # # TODO: may change to while loop
-            # actor_optimizer.zero_grad()
-            # loss_actor = 0
-            # for t_idx in range(Nt):
-            #     loss_actor = loss_actor + torch.mean((Control_NN(t_idx*dt*torch.ones(Nx,1).to(device),x[t_idx,:,:]) - u_tgt[t_idx,:,:])**2)
-            # loss_actor = loss_actor * 100
-            # if step % logging_freq == 0 and actor_step == 0:
-            #     init_loss_actor = loss_actor.item()
-            # loss_actor.backward() # assign gradient
-            # actor_optimizer.step() # update actor parameters
-            # loss_actor.detach()
-        
-            # Actor update
+            # update the actor num_actor_updates times
+            # TODO: may change to while loop
             actor_optimizer.zero_grad()
             loss_actor = 0
             for t_idx in range(Nt):
-                u_pred = Control_NN(t_idx * dt * torch.ones(Nx, 1).to(device), x_detach[t_idx, :, :])
-                loss_actor += torch.mean((u_pred - u_tgt[t_idx, :, :]) ** 2)
-            loss_actor *= 100
-            if step % logging_freq == 0:
+                loss_actor = loss_actor + torch.mean((Control_NN(t_idx*dt*torch.ones(Nx,1).to(device),x_detach[t_idx,:,:]) - u_tgt[t_idx,:,:])**2)
+            loss_actor = loss_actor * 100
+            if step % logging_freq == 0 and actor_step == 0:
                 init_loss_actor = loss_actor.item()
-            loss_actor.backward()  # assign gradient
-            actor_optimizer.step()  # update actor parameters
-            # loss_actor.detach()  # detach the computation graph
+            loss_actor.backward() # assign gradient
+            actor_optimizer.step() # update actor parameters
 
         actor_scheduler.step()
         # finish actor training
@@ -261,7 +247,7 @@ def train(V0_NN,Grad_NN,Control_NN,critic_optimizer,critic_scheduler,actor_optim
             # record the final actor loss
             loss_actor_fin = 0
             for t_idx in range(Nt):
-                loss_actor_fin = loss_actor_fin + torch.mean((Control_NN(t_idx*dt*torch.ones(Nx,1).to(device),x[t_idx,:,:]) - u_tgt[t_idx,:,:])**2)
+                loss_actor_fin = loss_actor_fin + torch.mean((Control_NN(t_idx*dt*torch.ones(Nx,1).to(device),x_detach[t_idx,:,:]) - u_tgt[t_idx,:,:])**2)
             loss_actor_fin = loss_actor_fin * 100
             final_loss_actor = loss_actor_fin.item()
             # print("step",step,"loss", loss.detach().cpu().numpy())

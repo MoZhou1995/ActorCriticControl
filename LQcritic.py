@@ -31,8 +31,8 @@ beta_pt = torch.tensor(beta, dtype=data_type, device=device)
 assert len(beta) == d, "beta does not match dimension"
 
 # training parameters
-num_steps = 300
-learning_rate = 0.1
+num_steps = 300 # still decreasing after 300 steps
+learning_rate = 0.05
 milestones = [100,200]
 decay = 0.5
 num_trig_basis = 3
@@ -40,7 +40,7 @@ num_trig_basis = 3
 # set grid
 Nt = 10          # number of time stamps
 Nx = 500         # batch size for taining
-N_valid = 300    # number of spatial samples for validation
+N_valid = 500    # number of spatial samples for validation
 net_size = 10    # width of the network
 
 
@@ -51,31 +51,31 @@ sqrt_dt = np.sqrt(dt)
 # define the ground true fucntions
 def V(t,x): # true value function in numpy
     # x is N x d; V is N x 1
-    temp = np.sum(beta_np * np.sin(np.pi*x), axis=-1, keepdims=True)
+    temp = np.sum(beta_np * np.sin(x), axis=-1, keepdims=True)
     return temp + beta0 * (T-t)
 
 def V_grad(t,x): # gradient of V
-    return np.pi * beta_np * np.cos(np.pi * x)
+    return beta_np * np.cos(x)
 
-# def g(x): # terminal cost
-#     return np.sum(beta_np * np.sin(np.pi*x), axis=-1, keepdims=True)
+# def g_np(x): # terminal cost
+#     return np.sum(beta_np * np.sin(x), axis=-1, keepdims=True)
 
 def g(x): # terminal cost torch
-    return torch.sum(beta_pt * torch.sin(torch.pi*x), dim=-1, keepdim=True)
+    return torch.sum(beta_pt * torch.sin(x), dim=-1, keepdim=True)
 
-# def r(x,u): # running cost
-#     temp = np.sum(sigma_bar**2 * beta_np * np.sin(np.pi*x) + beta_np**2 * np.cos(np.pi*x)**2, axis=-1, keepdims=True)
-#     return np.pi**2 * temp / 2 + beta0 + np.sum(u**2, axis=-1, keepdims=True)
+# def r_np(x,u): # running cost
+#     temp = np.sum(sigma_bar**2 * beta_np * np.sin(x) + beta_np**2 * np.cos(x)**2, axis=-1, keepdims=True)
+#     return temp / 2 + beta0 + np.sum(u**2, axis=-1, keepdims=True)/2
 
 def r(x,u): # running cost, torch
-    temp = torch.sum(sigma_bar**2 * beta_pt * torch.sin(torch.pi*x) + beta_pt**2 * torch.cos(torch.pi*x)**2, dim=-1, keepdim=True)
-    return torch.pi**2 * temp / 2 + beta0 + torch.sum(u**2, dim=-1, keepdim=True)
+    temp = torch.sum(sigma_bar**2 * beta_pt * torch.sin(x) + beta_pt**2 * torch.cos(x)**2, dim=-1, keepdim=True)
+    return temp / 2 + beta0 + torch.sum(u**2, dim=-1, keepdim=True)/2
 
 def u_star(t,x): # optimal control
-    return -np.pi * beta_np * np.cos(np.pi * x)
+    return -beta_np * np.cos(x)
 
 def u_star_pt(t,x): # optimal control in torch
-    return -torch.pi * beta_pt * torch.cos(torch.pi * x)
+    return -beta_pt * torch.cos(x)
 
 def b_x(x,u): # drift for x, N x d, torch
     return u
@@ -86,8 +86,11 @@ def diffu_x(x, dW_t): # diffusion for x, N x d, torch
 def diffu_y(x, grad_y, dW_t): # diffusion for y, N x 1, torch
     return sigma_bar * torch.sum(grad_y * dW_t, dim=-1, keepdim=True)
 
+# def diffu_y_np(x, grad_y, dW_t): # diffusion for y, N x 1, torch
+#     return sigma_bar * np.sum(grad_y * dW_t, axis=-1, keepdims=True)
 
-# ========== construct neural network ==========
+
+# # ========== construct neural network ==========
 # periodic net for V(0,x)
 class V0_net(nn.Module):
     def __init__(self, outdim):
@@ -135,7 +138,7 @@ Grad_NN.type(data_type).to(device)
 # ========== before training ==========
 
 # sample some validation data
-x_valid = np.random.uniform(0,1,[N_valid,d])
+x_valid = np.random.uniform(0,2*np.pi,[N_valid,d])
 x_valid_pt = torch.tensor(x_valid, dtype=data_type, device=device)
 V0_true = V(0,x_valid)
 Grad_true = V_grad(0,x_valid)
@@ -156,7 +159,7 @@ def train(V0_NN, Grad_NN, critic_optimizer, critic_scheduler):
     for step in range(num_steps+1):
         critic_optimizer.zero_grad()
         # start to sample the trajectory
-        x0 = np.random.uniform(0,1,[Nx,d])
+        x0 = np.random.uniform(0,2*np.pi,[Nx,d])
         x = torch.tensor(x0, dtype=data_type, device=device, requires_grad=True)
         y = V0_NN(x) # for the trajectory
         dW_t = torch.normal(0, sqrt_dt, size=(Nt, Nx, d_w)).to(device)
@@ -164,7 +167,7 @@ def train(V0_NN, Grad_NN, critic_optimizer, critic_scheduler):
         for t_idx in range(Nt):
             t = t_idx*dt
             grad_y = Grad_NN(t*torch.ones(Nx,1).to(device),x)
-            u = u_star_pt(t,x)
+            u = u_star_pt(t,x) # optimal control for critic test
             drift_x = b_x(x,u)
             diffusion_x = diffu_x(x, dW_t[t_idx,:,:])
             drift_y = -r(x,u)
@@ -194,20 +197,26 @@ def train(V0_NN, Grad_NN, critic_optimizer, critic_scheduler):
     return
 
 train(V0_NN, Grad_NN, critic_optimizer, critic_scheduler)
+
 # sample trajectory to test loss
-# x = np.random.uniform(0,1,[Nx,d])
-# y = V(0,x)
-# for t_idx in range(Nt):
-#     t = t_idx * dt
-#     dW_t = np.random.randn(Nx,d_w) * sqrt_dt
-#     u = u_star(t,x)
-#     drift_x = b_x(x,u)
-#     diffusion_x = sigma_x(x, dW_t)
-#     drift_y = -r(x,u)
-#     grad_y = V_grad(t,x)
-#     diffusion_y = sigma_y(x, grad_y, dW_t)
-#     x = x + drift_x * dt + diffusion_x
-#     y = y + drift_y * dt + diffusion_y
-# TD = g(x) - y # temporal difference, N x 1
-# loss = np.mean(TD**2)
+# for size in [10,20,40,80]:
+#     Nt = size
+#     dt = T / Nt
+#     sqrt_dt = np.sqrt(dt)
+#     x = np.random.uniform(0,2*np.pi,[Nx,d])
+#     y = V(0,x)
+#     for t_idx in range(Nt):
+#         t = t_idx * dt
+#         dW_t = np.random.randn(Nx,d_w) * sqrt_dt
+#         u = u_star(t,x)
+#         drift_x = b_x(x,u)
+#         diffusion_x = diffu_x(x, dW_t)
+#         drift_y = -r_np(x,u)
+#         grad_y = V_grad(t,x)
+#         diffusion_y = diffu_y_np(x, grad_y, dW_t)
+#         x = x + drift_x * dt + diffusion_x
+#         y = y + drift_y * dt + diffusion_y
+#     TD = g_np(x) - y # temporal difference, N x 1
+#     loss = np.mean(TD**2)
+#     print("Nt",Nt,"loss", loss)
 
