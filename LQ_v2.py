@@ -1,4 +1,5 @@
 # this script test the actor-critic mathod for LQ problem
+# the networks are separated for each time step
 import numpy as np
 import torch
 from torch import nn
@@ -31,23 +32,23 @@ assert len(beta) == d, "beta does not match dimension"
 
 # training parameters
 logging_freq = 10
-num_steps = 200
-lr_a = 0.1
+num_steps = 300
+lr_a = 0.05
 delta_tau = 0.1
-milestones_a = [100]
-decay_a = 1.0 
+milestones_a = [100,200]
+decay_a = 0.5 
 num_trig_basis = 3
-lr_c = 0.1
-milestones_c = [100]
+lr_c = 0.05
+milestones_c = [100,200]
 decay_c = 0.1
 num_critic_updates = 1 # number of critic updates per actor update
 num_actor_updates = 1 # number of actor updates per critic update
 
 # set grid
-Nt = 10          # number of time stamps
+Nt = 20          # number of time stamps
 Nx = 500         # batch size for taining
 N_valid = 500    # number of spatial samples for validation
-net_size_a = 10    # width of the network
+net_size_a = 3    # width of the network
 net_size_c = 10    # width of the network
 
 # corresponding qunantities needed
@@ -112,57 +113,87 @@ class V0_net(nn.Module):
         NN_out = self.linear2(NN_out)
         return NN_out
 
-class Grad_net(nn.Module): # net for the gradient
+# class Grad_net(nn.Module): # net for the gradient
+#     def __init__(self, outdim):
+#         super().__init__()
+#         self.dim = d
+#         self.linear1 = nn.Linear(2*self.dim*num_trig_basis+1, net_size_c)
+#         self.linear2 = nn.Linear(net_size_c, outdim)
+#         self.activate = nn.ReLU()
+
+#     def forward(self, t, x):
+#         # x is N x d, output is N x 1
+#         kx = x.unsqueeze(1).expand(-1, num_trig_basis, -1) \
+#             * torch.arange(1,num_trig_basis+1,device=device).unsqueeze(1)
+#         kx = kx.view(-1,num_trig_basis*self.dim)
+#         tx = torch.cat((t,torch.sin(kx),torch.cos(kx)), dim=-1)
+#         NN_out = self.linear1(tx)
+#         NN_out = self.activate(NN_out) + NN_out
+#         NN_out = self.linear2(NN_out)
+#         return NN_out
+
+# class Control_net(nn.Module): # net for the control
+#     def __init__(self, outdim):
+#         super().__init__()
+#         self.dim = d
+#         self.linear1 = nn.Linear(2*self.dim*num_trig_basis+1, net_size_a)
+#         self.linear2 = nn.Linear(net_size_a, outdim)
+#         self.activate = nn.ReLU()
+
+#     def forward(self, t, x):
+#         # x is N x d, output is N x 1
+#         kx = x.unsqueeze(1).expand(-1, num_trig_basis, -1) \
+#             * torch.arange(1,num_trig_basis+1,device=device).unsqueeze(1)
+#         kx = kx.view(-1,num_trig_basis*self.dim)
+#         tx = torch.cat((t,torch.sin(kx),torch.cos(kx)), dim=-1)
+#         NN_out = self.linear1(tx)
+#         NN_out = self.activate(NN_out) + NN_out
+#         NN_out = self.linear2(NN_out)
+#         return NN_out
+
+class Simple_net(nn.Module):
     def __init__(self, outdim):
         super().__init__()
         self.dim = d
-        self.linear1 = nn.Linear(2*self.dim*num_trig_basis+1, net_size_c)
-        self.linear2 = nn.Linear(net_size_c, outdim)
-        self.activate = nn.ReLU()
-
-    def forward(self, t, x):
-        # x is N x d, output is N x 1
-        kx = x.unsqueeze(1).expand(-1, num_trig_basis, -1) \
-            * torch.arange(1,num_trig_basis+1,device=device).unsqueeze(1)
-        kx = kx.view(-1,num_trig_basis*self.dim)
-        tx = torch.cat((t,torch.sin(kx),torch.cos(kx)), dim=-1)
-        NN_out = self.linear1(tx)
-        NN_out = self.activate(NN_out) + NN_out
-        NN_out = self.linear2(NN_out)
-        return NN_out
-
-class Control_net(nn.Module): # net for the control
-    def __init__(self, outdim):
-        super().__init__()
-        self.dim = d
-        self.linear1 = nn.Linear(2*self.dim*num_trig_basis+1, net_size_a)
+        self.linear1 = nn.Linear(2*self.dim*num_trig_basis, net_size_a)
         self.linear2 = nn.Linear(net_size_a, outdim)
         self.activate = nn.ReLU()
 
-    def forward(self, t, x):
+    def forward(self, x):
         # x is N x d, output is N x 1
         kx = x.unsqueeze(1).expand(-1, num_trig_basis, -1) \
             * torch.arange(1,num_trig_basis+1,device=device).unsqueeze(1)
         kx = kx.view(-1,num_trig_basis*self.dim)
-        tx = torch.cat((t,torch.sin(kx),torch.cos(kx)), dim=-1)
-        NN_out = self.linear1(tx)
+        trig = torch.cat((torch.sin(kx),torch.cos(kx)), dim=-1)
+        NN_out = self.linear1(trig)
         NN_out = self.activate(NN_out) + NN_out
         NN_out = self.linear2(NN_out)
         return NN_out
 
-
 V0_NN = V0_net(1)
-Grad_NN = Grad_net(d)
-Control_NN = Control_net(d_c)
+# Grad_NN = Grad_net(d)
+# Control_NN = Control_net(d_c)
 V0_NN.type(data_type).to(device)
-Grad_NN.type(data_type).to(device)
-Control_NN.type(data_type).to(device)
+# Grad_NN.type(data_type).to(device)
+# Control_NN.type(data_type).to(device)
+
+Grad_NN_all = [Simple_net(d) for _ in range(Nt)]
+Control_NN_all = [Simple_net(d_c) for _ in range(Nt)]
+for i in range(Nt):
+    Grad_NN_all[i].type(data_type).to(device)
+    Control_NN_all[i].type(data_type).to(device)
+
 
 # define the optimizer
-optimizer_a = torch.optim.Adam(Control_NN.parameters(), lr=lr_a)
+actor_parameter = []
+critic_parameter = list(V0_NN.parameters())
+for i in range(Nt):
+    actor_parameter = actor_parameter + list(Control_NN_all[i].parameters())
+    critic_parameter = critic_parameter + list(Grad_NN_all[i].parameters())
+
+optimizer_a = torch.optim.Adam(params=actor_parameter, lr=lr_a)
 scheduler_a = MultiStepLR(optimizer_a, milestones=milestones_a, gamma=decay_a)
-optimizer_c = torch.optim.Adam(params=list(V0_NN.parameters())
-                    + list(Grad_NN.parameters()), lr=lr_c)
+optimizer_c = torch.optim.Adam(params=critic_parameter, lr=lr_c)
 scheduler_c = MultiStepLR(optimizer_c, milestones=milestones_c, gamma=decay_c)
 
 # define the loss function
@@ -178,7 +209,7 @@ norm_V0 = np.linalg.norm(V0_true)
 norm_Grad = np.linalg.norm(Grad_true)
 
 # define the training process
-def train(V0_NN,Grad_NN,Control_NN,critic_optimizer,critic_scheduler,actor_optimizer,actor_scheduler):
+def train(V0_NN,Grad_NN_all,Control_NN_all,critic_optimizer,critic_scheduler,actor_optimizer,actor_scheduler):
     start_time = time.time()
     name_start = 'results/' + 'LQ' + str(d) + 'd/'
     os.makedirs(name_start, exist_ok=True)
@@ -193,10 +224,8 @@ def train(V0_NN,Grad_NN,Control_NN,critic_optimizer,critic_scheduler,actor_optim
             xt = torch.tensor(x0, dtype=data_type, device=device, requires_grad=True)
             yt = V0_NN(xt)
             for t_idx in range(Nt):
-                t = t_idx * dt
-                grad_y = Grad_NN(t*torch.ones(Nx,1).to(device),xt)
-                # u = u_star_pt(t,xt)
-                u = Control_NN(t*torch.ones(Nx,1).to(device),xt)
+                grad_y = Grad_NN_all[t_idx](xt)
+                u = Control_NN_all[t_idx](xt)
                 drift_x = b_x(xt,u)
                 diffusion_x = diffu_x(xt, dW_t[t_idx,:,:])
                 drift_y = -r(xt,u)
@@ -219,10 +248,9 @@ def train(V0_NN,Grad_NN,Control_NN,critic_optimizer,critic_scheduler,actor_optim
         J = 0
         # obtain direction for actor update
         for t_idx in range(Nt):
-            t = t_idx*dt
-            u = Control_NN(t*torch.ones(Nx,1).to(device),x[t_idx,:,:]) # shape Nx x dc
+            u = Control_NN_all[t_idx](x[t_idx,:,:]) # shape Nx x dc
             x[t_idx+1,:,:] = x[t_idx,:,:] + b_x(x[t_idx,:,:], u)* dt + diffu_x(x[t_idx,:,:], dW_t[t_idx,:,:])
-            Grad_G = - Grad_NN(t*torch.ones(Nx,1).to(device),x[t_idx,:,:]) - u # shape Nx x d_c
+            Grad_G = - Grad_NN_all[t_idx](x[t_idx,:,:]) - u # shape Nx x d_c
             u_tgt[t_idx,:,:] = (u + delta_tau*Grad_G).detach() # target control for update
             J = J + dt*torch.mean(r(x[t_idx,:,:],u))
         J = J + torch.mean(g(x[Nt,:,:])) # add terminal cost
@@ -233,7 +261,7 @@ def train(V0_NN,Grad_NN,Control_NN,critic_optimizer,critic_scheduler,actor_optim
             actor_optimizer.zero_grad()
             loss_actor = 0
             for t_idx in range(Nt):
-                loss_actor = loss_actor + torch.mean((Control_NN(t_idx*dt*torch.ones(Nx,1).to(device),x_detach[t_idx,:,:]) - u_tgt[t_idx,:,:])**2)
+                loss_actor = loss_actor + torch.mean((Control_NN_all[t_idx](x_detach[t_idx,:,:]) - u_tgt[t_idx,:,:])**2)
             loss_actor = loss_actor * 100
             if step % logging_freq == 0 and actor_step == 0:
                 init_loss_actor = loss_actor.item()
@@ -248,12 +276,12 @@ def train(V0_NN,Grad_NN,Control_NN,critic_optimizer,critic_scheduler,actor_optim
             # record the final actor loss
             loss_actor_fin = 0
             for t_idx in range(Nt):
-                loss_actor_fin = loss_actor_fin + torch.mean((Control_NN(t_idx*dt*torch.ones(Nx,1).to(device),x_detach[t_idx,:,:]) - u_tgt[t_idx,:,:])**2)
+                loss_actor_fin = loss_actor_fin + torch.mean((Control_NN_all[t_idx](x_detach[t_idx,:,:]) - u_tgt[t_idx,:,:])**2)
             loss_actor_fin = loss_actor_fin * 100
             final_loss_actor = loss_actor_fin.item()
             # print("step",step,"loss", loss.detach().cpu().numpy())
             y0 = V0_NN(x_valid_pt)
-            z0 = Grad_NN(torch.zeros(N_valid,1).to(device),x_valid_pt)
+            z0 = Grad_NN_all[0](x_valid_pt)
             error_y = np.linalg.norm(y0.detach().cpu().numpy() - V0_true) / norm_V0
             error_z = np.linalg.norm(z0.detach().cpu().numpy() - Grad_true) / norm_Grad
             loss_critic_np = loss_critic.detach().cpu().numpy()
@@ -266,7 +294,7 @@ def train(V0_NN,Grad_NN,Control_NN,critic_optimizer,critic_scheduler,actor_optim
             for t_idx in range(Nt):
                 t = t_idx * dt
                 # loss_check = loss_check + torch.mean((Control_NN(t*torch.ones(Nx,1).to(device),x[i,:,:]) - u_tgt[i,:,:])**2)
-                u = Control_NN(t*torch.ones(N_valid,1).to(device),x_val)
+                u = Control_NN_all[t_idx](x_val)
                 u_true = u_star_pt(t,x_val)
                 err = err + torch.sum((u - u_true)**2)
                 norm_sq = norm_sq + torch.sum(u_true**2)
@@ -282,6 +310,6 @@ def train(V0_NN,Grad_NN,Control_NN,critic_optimizer,critic_scheduler,actor_optim
     return
 
 # ========== test the algorithm ==========
-train(V0_NN,Grad_NN,Control_NN,optimizer_c,scheduler_c,optimizer_a,scheduler_a)
+train(V0_NN,Grad_NN_all,Control_NN_all,optimizer_c,scheduler_c,optimizer_a,scheduler_a)
 
 
