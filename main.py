@@ -16,21 +16,18 @@ import network
 import os
 
 '''
-Tasks one by one:
-1. implement the actor-critic algorithm one net mode. Done!
-2. implement the actor and critic algorithm one net mode. Done!
-3. add retrain feature
-4. do everything for multiple net mode. Done!
-5. add validation mode. Done!
-6. add debug mode
-
-
-TODOs: 
-main.py: 4 modes actor-critic, actor, critic, validation
-equation.py
-solver.py: validation mode
+TODOs:
+test GPU
+test float64
 network.py: arbitrary number of hidden layers
-json files
+the current actor update direction is only for LQ, move it to equation.py
+try different critic loss
+
+Takeaways:
+actor need smaller stepzise, at lease as small as critic
+retrain for actor-critic and critic: the first step increase the error a lot, so I use smaller learning rate
+retrain for actor is very nice
+ setting num_actor_updates > 1 is helpful
 '''
 
 def parse_args():
@@ -41,7 +38,7 @@ def parse_args():
     parser.add_argument('--verbose', default=True, action=argparse.BooleanOptionalAction)
     parser.add_argument("--debug_mode", default=False, action=argparse.BooleanOptionalAction)
     parser.add_argument("--multiple_net_mode", default=None, action=argparse.BooleanOptionalAction)
-    parser.add_argument("--retrain", default=None, type=str) #format: default_model/model_100.pt
+    parser.add_argument("--retrain", default=None, type=str) #format: model_name/nets.pt
     parser.add_argument("--train_mode", default="actor-critic", type=str) # actor-critic, actor, critic, validation
     # command for no verbose: --no-verbose
     args = parser.parse_args()
@@ -52,17 +49,26 @@ def main():
     np.random.seed(args.random_seed)
     torch.manual_seed(args.random_seed)
     
-    if args.retrain:
-        old_model_name = args.retrain[:args.retrain.find('/' or "\\")]
-        args.config = os.path.join(args.datadir, old_model_name, "config.json")
-        args.model_name = old_model_name + "_retrain_" + args.model_name
-
     f = open(args.config)
     config = json.load(f)
     f.close()
     # modify the config according to the command line arguments
     if args.multiple_net_mode is not None:
         config['net_config']['multiple_net_mode'] = args.multiple_net_mode
+
+    
+    problem_name = config['eqn_config']['eqn_name']+str(config['eqn_config']['dim'])+'d'
+    if args.retrain:
+        old_model_name = args.retrain[:args.retrain.find('/' or "\\")]
+        old_config_dir = os.path.join('./results', problem_name, old_model_name, "config.json")
+        old_config = json.load(open(old_config_dir))
+        args.model_name = old_model_name + "_retrain_" + args.model_name
+        config['eqn_config'] = old_config['eqn_config']
+        config['net_config'] = old_config['net_config']
+        # will use the new train_config
+        # TODO: test for better training options
+        config['train_config']['lr_a'] = config['train_config']['lr_a'] / 100
+        config['train_config']['lr_c'] = config['train_config']['lr_c'] / 100
 
     eqn_config = config['eqn_config']
     net_config = config['net_config']
@@ -77,22 +83,20 @@ def main():
     multiple_net_mode = net_config['multiple_net_mode']
     train_mode = args.train_mode
     if train_mode == 'validation':
-        print('validation mode for '+eqn_config['eqn_name']+ ' in '+str(eqn_config['dim'])+'d')
+        print('validation mode for '+ problem_name)
         from solver import validate
         validate(model, train_config, num_valid=6)
         print('If the errors are small and roughly forms a geometric sequence with ratio 0.5, then the model is good.')
         return
     if multiple_net_mode:
-        args.model_name = args.model_name + 'MN'
+        args.model_name = args.model_name + 'MN' # multiple net mode
     else:
-        args.model_name = args.model_name + 'SN'
+        args.model_name = args.model_name + 'SN' # single net mode
     print('solving '+eqn_config['eqn_name']+ ' in '+str(eqn_config['dim'])+'d with train mode:', train_mode,
         'model name:', args.model_name,', multiple_net_mode:', multiple_net_mode)
-    if args.retrain:
-        print('retrain from ', args.retrain)
     
     # save the config in the model directory
-    problem_dir = os.path.join('./results', eqn_config['eqn_name']+str(eqn_config['dim'])+'d')
+    problem_dir = os.path.join('./results', problem_name)
     model_dir = os.path.join(problem_dir, args.model_name)
     if not os.path.exists(model_dir):
         os.makedirs(model_dir)
@@ -124,21 +128,19 @@ def main():
     if args.retrain: # load pretrained networks
         print('retrain from ', args.retrain)
         old_model_dir = os.path.join(problem_dir, args.retrain)
-        all_dicts = torch.load(os.path.join(old_model_dir, 'all_nets.pt'))
-        if train_mode == 'actor-critic' or train_mode == 'critic':
-            all_nets['V0'].load_state_dict(all_dicts['V0'])
-        # TODO: test loading two modes of nets 
+        all_dicts = torch.load(old_model_dir)
         # actor-critic: load Grad and control; actor: load control; critic: load Grad
         if train_mode == 'actor-critic' or train_mode == 'actor':
             if multiple_net_mode:
                 for i in range(Nt):
-                    all_nets['Control'][i].load_state_dict(all_dicts['Control'][i])
+                    all_nets['Control'][i].load_state_dict(all_dicts['Control'+str(i)])
             else:
                 all_nets['Control'].load_state_dict(all_dicts['Control'])
         if train_mode == 'actor-critic' or train_mode == 'critic':
+            all_nets['V0'].load_state_dict(all_dicts['V0'])
             if multiple_net_mode:
                 for i in range(Nt):
-                    all_nets['Grad'][i].load_state_dict(all_dicts['Grad'][i])
+                    all_nets['Grad'][i].load_state_dict(all_dicts['Grad'+str(i)])
             else:
                 all_nets['Grad'].load_state_dict(all_dicts['Grad'])
 
@@ -164,6 +166,13 @@ def main():
         critic_optimizer = torch.optim.Adam(critic_paramter, lr=train_config['lr_c'])
         critic_scheduler = MultiStepLR(critic_optimizer, milestones=train_config['milestones'], gamma=train_config['decay_c'])
         optimizer_scheduler['critic'] = (critic_optimizer, critic_scheduler)
+    
+    # debug for actor update direction
+    # if args.debug_mode:
+    #     if train_mode == 'actor-critic' or train_mode == 'actor':
+    #         from debug import test_actor_update
+    #         test_actor_update(model, all_nets, multiple_net_mode, train_mode, device, train_config, data_type)
+    #         return
 
     # train the model
     from solver import train

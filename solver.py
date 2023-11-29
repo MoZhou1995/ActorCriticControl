@@ -66,6 +66,10 @@ def train(model, all_nets, optimizer_scheduler, train_config, data_type, device,
         V0_NN, Grad_NN = all_nets['V0'], all_nets['Grad']
         critic_optimizer, critic_scheduler = optimizer_scheduler['critic']
 
+    # if args.debug_mode:
+    #     error_V0, error_G, error_u = test_nets_errors(model, all_nets, multiple_net_mode, train_mode, device, train_config, data_type)
+    #     print('errors before iteration: V0: %.4e, G: %.4e, u: %.4e'%(error_V0, error_G, error_u))
+
     # start training
     train_history = [] # record training history
     init_loss_actor, loss_actor, loss_critic = 0, 0, 0
@@ -102,7 +106,7 @@ def train(model, all_nets, optimizer_scheduler, train_config, data_type, device,
                 loss_critic.backward() # assign gradient
                 critic_optimizer.step() # update critic parameters
             critic_scheduler.step() # finish critic update
-
+        
         if not cheat_actor: # actor update
             actor_optimizer.zero_grad()
             x0 = np.random.uniform(0,2*np.pi,[Nx,d])
@@ -112,6 +116,7 @@ def train(model, all_nets, optimizer_scheduler, train_config, data_type, device,
             u_tgt = torch.zeros(Nt,Nx,d_c, dtype=data_type, device=device)
             J = 0
             # obtain direction for actor update
+            # TODO: the current update direction is only for LQ, move it to equation.py
             for t_idx in range(Nt):
                 t = t_idx*dt
                 if multiple_net_mode:
@@ -151,6 +156,9 @@ def train(model, all_nets, optimizer_scheduler, train_config, data_type, device,
             actor_scheduler.step()
             # finish actor update
         # finish one step of training
+        # if step == 0 and args.debug_mode:
+        #     error_V0, error_G, error_u = test_nets_errors(model, all_nets, multiple_net_mode, train_mode, device, train_config, data_type)
+        #     print('errors after actor update: V0: %.4e, G: %.4e, u: %.4e'%(error_V0, error_G, error_u))
         
         # print and record training information
         if step % train_config['logging_frequency'] == 0:
@@ -179,17 +187,35 @@ def train(model, all_nets, optimizer_scheduler, train_config, data_type, device,
                                                 x_valid_pt).detach().cpu().numpy() - u_true[t_idx,:,:])**2)
                 error_u = np.sqrt(error_u / norm_u_true)
             if args.verbose:
+                np.set_printoptions(precision=5, suppress=True)
                 print('step:', step, "J", np.around(J,decimals=6),
                       # loss and errors one by one, separately
-                      'loss:', np.around(loss_critic,decimals=pcs), init_loss_actor, np.around(loss_actor,decimals=pcs),
+                      'loss:', np.around(loss_critic,decimals=pcs), np.around(init_loss_actor,decimals=pcs), np.around(loss_actor,decimals=pcs),
                       'errors:', np.around(error_V0,decimals=pcs), np.around(error_G,decimals=pcs), np.around(error_u,decimals=pcs),
                       'time:', np.around(time.time() - start_time,decimals=1))
             train_history.append([step, J, loss_critic, init_loss_actor, loss_actor,
                                   error_V0, error_G, error_u, time.time() - start_time])
+        # if step == 0 and args.debug_mode:
+        #     error_V0, error_G, error_u = test_nets_errors(model, all_nets, multiple_net_mode, train_mode, device, train_config, data_type)
+        #     print('errors after first iteration: V0: %.4e, G: %.4e, u: %.4e'%(error_V0, error_G, error_u))
 
     # save train history and save model
     np.save(name_start+'/train_history'+str(args.random_seed), train_history)
-    torch.save(all_nets, name_start+'/model.pt')
+    all_nets_dict = {}
+    if not cheat_actor:
+        if multiple_net_mode:
+            for t_idx in range(Nt):
+                all_nets_dict['Control'+str(t_idx)] = Control_NN[t_idx].state_dict()
+        else:
+            all_nets_dict['Control'] = Control_NN.state_dict()
+    if not cheat_critic:
+        all_nets_dict['V0'] = V0_NN.state_dict()
+        if multiple_net_mode:
+            for t_idx in range(Nt):
+                all_nets_dict['Grad'+str(t_idx)] = Grad_NN[t_idx].state_dict()
+        else:
+            all_nets_dict['Grad'] = Grad_NN.state_dict()
+    torch.save(all_nets_dict, name_start+'/nets.pt')
     return
 
 def validate(model, train_config, num_valid):
