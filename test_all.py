@@ -56,7 +56,7 @@ if args.debug:
     # actor update tests and net error test
     os.system(python_cmd + ' main.py --config ./configs/'+name+'.json --debug_mode --no-verbose --num_iter 1')
     
-    print('Testing all the functions for ' + name + ' done')
+    print('Testing all the functions for ' + name + ' done. Please check if any error is reported.')
     
 
 

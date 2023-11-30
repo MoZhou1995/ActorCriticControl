@@ -91,10 +91,6 @@ def train(model, all_nets, optimizer_scheduler, train_config, data_type, device,
             def compute_u(Control_NN,t_idx,t,xt,device):
                 return Control_NN(t*torch.ones(xt.shape[0],1).to(device),xt)
 
-    # if args.debug_mode:
-    #     error_V0, error_Grad, error_u = test_nets_errors(model, all_nets, multiple_net_mode, train_mode, device, train_config, data_type)
-    #     print('errors before iteration: V0: %.4e, G: %.4e, u: %.4e'%(error_V0, error_Grad, error_u))
-
     # start training
     train_history = [] # record training history
     init_loss_actor, loss_actor, loss_critic = 0, 0, 0
@@ -112,17 +108,6 @@ def train(model, all_nets, optimizer_scheduler, train_config, data_type, device,
                     t = t_idx * dt
                     V_grad = compute_V_grad(Grad_NN,t_idx,t,xt,device)
                     u = compute_u(Control_NN,t_idx,t,xt,device)
-                    # if multiple_net_mode:
-                    #     grad_y = Grad_NN[t_idx](xt)
-                    # else:
-                    #     grad_y = Grad_NN(t*torch.ones(Nx,1).to(device),xt)
-                    # if cheat_actor:
-                    #     u = model.u_star(t,xt)
-                    # else:
-                    #     if multiple_net_mode:
-                    #         u = Control_NN[t_idx](xt)
-                    #     else:
-                    #         u = Control_NN(t*torch.ones(Nx,1).to(device),xt).detach()
                     drift_x = model.drift_x(xt,u)
                     diffusion_x = model.diffu_x(xt, dW_t[t_idx,:,:])
                     drift_y = -model.r(xt,u)
@@ -146,19 +131,8 @@ def train(model, all_nets, optimizer_scheduler, train_config, data_type, device,
             # TODO: the current update direction is only for LQ, move it to equation.py
             for t_idx in range(Nt):
                 t = t_idx*dt
-                # if multiple_net_mode:
-                #     u = Control_NN[t_idx](x[t_idx,:,:]) # shape Nx x dc
-                # else:
-                #     u = Control_NN(t*torch.ones(Nx,1).to(device),x[t_idx,:,:]) # shape Nx x dc
                 u = compute_u(Control_NN,t_idx,t,x[t_idx,:,:],device)
                 x[t_idx+1,:,:] = x[t_idx,:,:] + model.drift_x(x[t_idx,:,:], u)* dt + model.diffu_x(x[t_idx,:,:], dW_t[t_idx,:,:])
-                # if cheat_critic:
-                #     V_grad = model.V_grad(t,x[t_idx,:,:])
-                # else:
-                #     if multiple_net_mode:
-                #         V_grad = Grad_NN[t_idx](x[t_idx,:,:])
-                #     else:
-                #         V_grad = Grad_NN(t*torch.ones(Nx,1).to(device),x[t_idx,:,:])
                 V_grad = compute_V_grad(Grad_NN,t_idx,t,x[t_idx,:,:],device)
                 Grad_G = model.Grad_G(t,x[t_idx,:,:],u,V_grad)
                 u_tgt[t_idx,:,:] = (u + delta_tau*Grad_G).detach() # target control for update
@@ -170,14 +144,7 @@ def train(model, all_nets, optimizer_scheduler, train_config, data_type, device,
                 # update the actor num_actor_updates times
                 actor_optimizer.zero_grad()
                 loss_actor = 0
-                # if multiple_net_mode:
-                #     for t_idx in range(Nt):
-                #         loss_actor = loss_actor + torch.mean((Control_NN[t_idx](x_detach[t_idx,:,:]) - u_tgt[t_idx,:,:])**2)
-                # else:
-                #     for t_idx in range(Nt):
-                #         loss_actor = loss_actor + torch.mean((Control_NN(t_idx*dt*torch.ones(Nx,1).to(device),
-                #                                             x_detach[t_idx,:,:]) - u_tgt[t_idx,:,:])**2)
-                for t_idx in range(Nt):
+               for t_idx in range(Nt):
                     u = compute_u(Control_NN,t_idx,t,x_detach[t_idx,:,:],device)
                     loss_actor = loss_actor + torch.mean((u - u_tgt[t_idx,:,:])**2)
                 loss_actor = loss_actor * 100
@@ -188,9 +155,6 @@ def train(model, all_nets, optimizer_scheduler, train_config, data_type, device,
             actor_scheduler.step()
             # finish actor update
         # finish one step of training
-        # if step == 0 and args.debug_mode:
-        #     error_V0, error_Grad, error_u = test_nets_errors(model, all_nets, multiple_net_mode, train_mode, device, train_config, data_type)
-        #     print('errors after actor update: V0: %.4e, G: %.4e, u: %.4e'%(error_V0, error_Grad, error_u))
         
         # print and record training information
         if step % train_config['logging_frequency'] == 0:
@@ -198,26 +162,12 @@ def train(model, all_nets, optimizer_scheduler, train_config, data_type, device,
             if not cheat_critic:
                 loss_critic = loss_critic.item()
                 error_V0 = torch.sqrt(torch.mean((V0_NN(x_valid) - V0_true)**2) / norm_V0_true).detach().cpu().numpy()
-                # if multiple_net_mode:
-                #     for t_idx in range(Nt):
-                #         error_Grad = error_Grad + torch.mean((Grad_NN[t_idx](x_valid) - Grad_true[t_idx,:,:])**2)
-                # else:
-                #     for t_idx in range(Nt):
-                #         error_Grad = error_Grad + torch.mean((Grad_NN(t_idx*dt*torch.ones(N_valid,1).to(device),
-                #                     x_valid) - Grad_true[t_idx,:,:])**2)
                 for t_idx in range(Nt):
                     V_grad = compute_V_grad(Grad_NN,t_idx,t_idx*dt,x_valid,device)
                     error_Grad = error_Grad + torch.mean((V_grad - Grad_true[t_idx,:,:])**2)
                 error_Grad = torch.sqrt(error_Grad / norm_Grad_true).detach().cpu().numpy()
             if not cheat_actor:
                 loss_actor = loss_actor.item()
-                # if multiple_net_mode:
-                #     for t_idx in range(Nt):
-                #         error_u = error_u + torch.mean((Control_NN[t_idx](x_valid) - u_true[t_idx,:,:])**2)
-                # else:
-                #     for t_idx in range(Nt):
-                #         error_u = error_u + torch.mean((Control_NN(t_idx*dt*torch.ones(N_valid,1).to(device),
-                #                                 x_valid) - u_true[t_idx,:,:])**2)
                 for t_idx in range(Nt):
                     u = compute_u(Control_NN,t_idx,t_idx*dt,x_valid,device)
                     error_u = error_u + torch.mean((u - u_true[t_idx,:,:])**2)
@@ -231,10 +181,7 @@ def train(model, all_nets, optimizer_scheduler, train_config, data_type, device,
                       'time:', np.around(time.time() - start_time,decimals=1))
             train_history.append([step, J, loss_critic, init_loss_actor, loss_actor,
                                   error_V0, error_Grad, error_u, time.time() - start_time])
-        # if step == 0 and args.debug_mode:
-        #     error_V0, error_Grad, error_u = test_nets_errors(model, all_nets, multiple_net_mode, train_mode, device, train_config, data_type)
-        #     print('errors after first iteration: V0: %.4e, G: %.4e, u: %.4e'%(error_V0, error_Grad, error_u))
-
+        
     # save train history and save model
     if args.save_results:
         np.save(model_dir+'/train_history'+str(args.random_seed), train_history)
@@ -264,7 +211,7 @@ def validate(model, train_config, device, data_type, num_valid):
     for i in range(num_valid):
         dt = T / Nt
         sqrt_dt = np.sqrt(dt)
-        dWt = torch.normal(0, sqrt_dt, size=(Nt, Nx, d))
+        dWt = torch.normal(0, sqrt_dt, size=(Nt, Nx, d)).to(device)
         xt = model.sample_uniform(Nx,d)
         xt = torch.tensor(xt, dtype=data_type).to(device)
         yt = model.V(0,xt)

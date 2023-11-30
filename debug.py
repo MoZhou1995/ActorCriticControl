@@ -171,20 +171,12 @@ def test_network_capacity(model, all_nets, optimizer_scheduler, train_config, da
         for t_idx in range(Nt):
             # for control net
             u_true[t_idx,:,:] = model.u_star(t_idx*dt,x)
-            # if multiple_net_mode:
-            #     u_NN_output = Control_NN[t_idx](x)
-            # else:
-            #     u_NN_output = Control_NN(t_idx*dt*torch.ones(Nx,1).to(device),x)
             u_NN_output = compute_u_NN(t_idx,dt,x,Control_NN,device)
             u_err = u_err + torch.mean((u_NN_output - u_true[t_idx,:,:])**2)
             u_norm = u_norm + torch.mean(u_true[t_idx,:,:]**2)
 
             # for Grad net
             Grad_true = model.V_grad(t_idx*dt,x)
-            # if multiple_net_mode:
-            #     Grad_NN_output = Grad_NN[t_idx](x)
-            # else:
-            #     Grad_NN_output = Grad_NN(t_idx*dt*torch.ones(Nx,1).to(device),x)
             Grad_NN_output = compute_Grad_NN(t_idx,dt,x,Grad_NN,device)
             Grad_err = Grad_err + torch.mean((Grad_NN_output - Grad_true)**2)
             Grad_norm = Grad_norm + torch.mean(Grad_true**2)
