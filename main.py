@@ -3,7 +3,8 @@ This is the main file for the actor-critic optimal control solver
 net_mode: 'single' or 'multiple' one network for all time steps or one network for each time step
 
 TODOs:
-try different critic loss
+write a grid search code to find the best parameters, including 
+lr_a, lr_c, num_time_interval, num_sample, delta_tau, decay
 
 Takeaways:
 actor need smaller stepzise, at lease as small as critic
@@ -36,6 +37,7 @@ def parse_args():
     parser.add_argument('--save_results', default=True, action=argparse.BooleanOptionalAction)
     parser.add_argument('--num_iter', default=None, type=int)
     parser.add_argument("--random_seed", default=0, type=int)
+    parser.add_argument("--grid_search", default=False, action=argparse.BooleanOptionalAction)
     # command for no verbose: --no-verbose
     args = parser.parse_args()
     return args
@@ -68,37 +70,42 @@ def main():
         args.model_name = old_model_name + "_retrain_" + args.model_name
         config['eqn_config'] = old_config['eqn_config']
         config['net_config'] = old_config['net_config']
+        multiple_net_mode = old_config['net_config']['multiple_net_mode']
         # will use the new train_config
         # TODO: test for better training options
         config['train_config']['lr_a'] = config['train_config']['lr_a'] / 100
         config['train_config']['lr_c'] = config['train_config']['lr_c'] / 100
+    else:
+        multiple_net_mode = config['net_config']['multiple_net_mode']
+        if multiple_net_mode:
+            args.model_name = args.model_name + 'MN' # multiple net mode
+        else:
+            args.model_name = args.model_name + 'SN' # single net mode
 
     eqn_config = config['eqn_config']
     net_config = config['net_config']
     train_config = config['train_config']
+    Nt = train_config['num_time_interval']
 
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     # build the model for equation
     data_type = torch.float32 if net_config['dtype'] == 'float32' else torch.float64
     model = getattr(eqn,eqn_config['eqn_name'])(eqn_config, data_type, device)
     
-    Nt = train_config['num_time_interval']
-    multiple_net_mode = net_config['multiple_net_mode']
     if train_mode == 'validation':
         print('validation mode for '+ problem_name)
         from solver import validate
         validate(model, train_config, device, data_type, 6)
         print('If the errors are small and roughly forms a geometric sequence with ratio 0.5, then the model is good.')
         return
-    if multiple_net_mode:
-        args.model_name = args.model_name + 'MN' # multiple net mode
-    else:
-        args.model_name = args.model_name + 'SN' # single net mode
+    
     print('solving '+eqn_config['eqn_name']+ ' in '+str(eqn_config['dim'])+'d with train mode:', train_mode,
         'model name:', args.model_name,'multiple_net_mode:', multiple_net_mode)
     
     # save the config in the model directory
     problem_dir = os.path.join('./results', problem_name)
+    if args.grid_search:
+        problem_dir = os.path.join(problem_dir, 'grid_search')
     model_dir = os.path.join(problem_dir, args.model_name)
     if not os.path.exists(model_dir):
         os.makedirs(model_dir)

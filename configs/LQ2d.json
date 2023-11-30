@@ -1,0 +1,38 @@
+{
+    "eqn_config": {
+      "_comment": "linear quadric regulator",
+      "eqn_name": "LQ",
+      "dim": 2,
+      "d_c": 2,
+      "d_w": 2,
+      "gamma": 0.1,
+      "beta0": 0.2,
+      "beta": [0.1, 0.1],
+      "sigma_bar": 1.0,
+      "T": 0.1
+    },
+    "net_config": {
+      "num_hiddens": [10, 10],
+      "multiple_net_mode": false,
+      "num_trig_basis": 3,
+      "net_type_u": "l2relu",
+      "net_type_V0": "l2relu",
+      "net_type_G": "l2relu",
+      "dtype": "float32"
+    },
+    "train_config":{
+      "lr_a": 0.05,
+      "decay_a": 0.1,
+      "lr_c": 0.1,
+      "decay_c": 0.1,
+      "delta_tau": 0.5,
+      "num_critic_updates": 1,
+      "num_actor_updates": 3,
+      "num_time_interval": 10,
+      "num_iterations": 200,
+      "milestones":[100],
+      "batch_size": 1000,
+      "valid_size": 1000,
+      "logging_frequency": 10
+    }
+}

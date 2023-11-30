@@ -24,7 +24,7 @@ def train(model, all_nets, optimizer_scheduler, train_config, data_type, device,
 
     # generate validation data
     x_valid = model.sample_uniform(N_valid,d)
-    x_valid = torch.tensor(x_valid, dtype=data_type, requires_grad=True).to(device)
+    x_valid = torch.tensor(x_valid, dtype=data_type).to(device)
     dW_t_valid = torch.normal(0, sqrt_dt, size=(Nt, N_valid, d_w)).to(device)
     V0_true = model.V(0,x_valid)
     norm_V0_true = torch.mean(V0_true**2)
@@ -37,18 +37,14 @@ def train(model, all_nets, optimizer_scheduler, train_config, data_type, device,
         norm_Grad_true = norm_Grad_true + torch.mean(Grad_true[t_idx,:,:]**2)
         u_true[t_idx,:,:] = model.u_star(t_idx*dt,x_valid)
         norm_u_true = norm_u_true + torch.mean(u_true[t_idx,:,:]**2)
-    
 
     # decide cheat or not
     if train_mode == 'critic':
-        cheat_actor = True
-        cheat_critic = False
+        cheat_actor, cheat_critic = True, False
     elif train_mode == 'actor':
-        cheat_actor = False
-        cheat_critic = True
+        cheat_actor, cheat_critic = False, True
     elif train_mode == 'actor-critic':
-        cheat_actor = False
-        cheat_critic = False 
+        cheat_actor, cheat_critic = False, False
     
     if not cheat_actor:
         Control_NN = all_nets['Control']
@@ -102,7 +98,7 @@ def train(model, all_nets, optimizer_scheduler, train_config, data_type, device,
                 critic_optimizer.zero_grad()
                 x0 = np.random.uniform(0,2*np.pi,[Nx,d])
                 dW_t = torch.normal(0, sqrt_dt, size=(Nt, Nx, d_w)).to(device)
-                xt = torch.tensor(x0, dtype=data_type, device=device, requires_grad=True)
+                xt = torch.tensor(x0, dtype=data_type, device=device)
                 yt = V0_NN(xt)
                 for t_idx in range(Nt):
                     t = t_idx * dt
@@ -144,7 +140,7 @@ def train(model, all_nets, optimizer_scheduler, train_config, data_type, device,
                 # update the actor num_actor_updates times
                 actor_optimizer.zero_grad()
                 loss_actor = 0
-               for t_idx in range(Nt):
+                for t_idx in range(Nt):
                     u = compute_u(Control_NN,t_idx,t,x_detach[t_idx,:,:],device)
                     loss_actor = loss_actor + torch.mean((u - u_tgt[t_idx,:,:])**2)
                 loss_actor = loss_actor * 100
