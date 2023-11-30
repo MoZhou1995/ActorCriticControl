@@ -29,19 +29,20 @@ def train(model, all_nets, optimizer_scheduler, train_config, data_type, device,
 
     # generate validation data
     x_valid = model.sample_uniform(N_valid,d)
-    x_valid_pt = torch.tensor(x_valid, dtype=data_type, requires_grad=True).to(device)
+    x_valid = torch.tensor(x_valid, dtype=data_type, requires_grad=True).to(device)
+    dW_t_valid = torch.normal(0, sqrt_dt, size=(Nt, N_valid, d_w)).to(device)
     V0_true = model.V(0,x_valid)
-    norm_V0_true = np.mean(V0_true**2)
-    Grad_true = np.zeros([Nt,N_valid,d])
+    norm_V0_true = torch.mean(V0_true**2)
+    Grad_true = torch.zeros([Nt,N_valid,d], dtype=data_type, device=device)
     norm_Grad_true = 0
-    u_true = np.zeros([Nt,N_valid,d_c])
+    u_true = torch.zeros([Nt,N_valid,d_c], dtype=data_type, device=device)
     norm_u_true = 0
     for t_idx in range(Nt):
         Grad_true[t_idx,:,:] = model.V_grad(t_idx*dt,x_valid)
-        norm_Grad_true = norm_Grad_true + np.mean(Grad_true[t_idx,:,:]**2)
+        norm_Grad_true = norm_Grad_true + torch.mean(Grad_true[t_idx,:,:]**2)
         u_true[t_idx,:,:] = model.u_star(t_idx*dt,x_valid)
-        norm_u_true = norm_u_true + np.mean(u_true[t_idx,:,:]**2)
-    dW_t_valid = torch.normal(0, sqrt_dt, size=(Nt, N_valid, d_w)).to(device)
+        norm_u_true = norm_u_true + torch.mean(u_true[t_idx,:,:]**2)
+    
 
     # decide cheat or not
     if train_mode == 'critic':
@@ -60,8 +61,8 @@ def train(model, all_nets, optimizer_scheduler, train_config, data_type, device,
     else:
         J = 0 # compute the true cost
         for t_idx in range(Nt):
-            J = J + dt*np.mean(model.r_np(x_valid,model.u_star(t_idx*dt,x_valid)))
-        J = J + np.mean(model.g_np(x_valid))
+            J = J + dt*torch.mean(model.r(x_valid,model.u_star(t_idx*dt,x_valid)))
+        J = J + torch.mean(model.g(x_valid))
     if not cheat_critic:
         V0_NN, Grad_NN = all_nets['V0'], all_nets['Grad']
         critic_optimizer, critic_scheduler = optimizer_scheduler['critic']
@@ -90,7 +91,7 @@ def train(model, all_nets, optimizer_scheduler, train_config, data_type, device,
                     else:
                         grad_y = Grad_NN(t*torch.ones(Nx,1).to(device),xt)
                     if cheat_actor:
-                        u = model.u_star_pt(t,xt)
+                        u = model.u_star(t,xt)
                     else:
                         if multiple_net_mode:
                             u = Control_NN[t_idx](xt)
@@ -125,12 +126,13 @@ def train(model, all_nets, optimizer_scheduler, train_config, data_type, device,
                     u = Control_NN(t*torch.ones(Nx,1).to(device),x[t_idx,:,:]) # shape Nx x dc
                 x[t_idx+1,:,:] = x[t_idx,:,:] + model.drift_x(x[t_idx,:,:], u)* dt + model.diffu_x(x[t_idx,:,:], dW_t[t_idx,:,:])
                 if cheat_critic:
-                    Grad_G = - model.V_grad_pt(t,x[t_idx,:,:]) - u
+                    V_grad = model.V_grad(t,x[t_idx,:,:])
                 else:
                     if multiple_net_mode:
-                        Grad_G = - Grad_NN[t_idx](x[t_idx,:,:]) - u # shape Nx x d_c
+                        V_grad = Grad_NN[t_idx](x[t_idx,:,:])
                     else:
-                        Grad_G = - Grad_NN(t*torch.ones(Nx,1).to(device),x[t_idx,:,:]) - u # shape Nx x d_c
+                        V_grad = Grad_NN(t*torch.ones(Nx,1).to(device),x[t_idx,:,:])
+                Grad_G = model.Grad_G(t,x[t_idx,:,:],u,V_grad)
                 u_tgt[t_idx,:,:] = (u + delta_tau*Grad_G).detach() # target control for update
                 J = J + dt*torch.mean(model.r(x[t_idx,:,:],u))
             J = J + torch.mean(model.g(x[Nt,:,:])) # add terminal cost
@@ -138,7 +140,6 @@ def train(model, all_nets, optimizer_scheduler, train_config, data_type, device,
             x_detach=x.detach()
             for actor_step in range(num_actor_updates):
                 # update the actor num_actor_updates times
-                # TODO: may change to while loop, add debug mode
                 actor_optimizer.zero_grad()
                 loss_actor = 0
                 if multiple_net_mode:
@@ -165,27 +166,27 @@ def train(model, all_nets, optimizer_scheduler, train_config, data_type, device,
             error_V0, error_G = 0, 0
             if not cheat_critic:
                 loss_critic = loss_critic.item()
-                error_V0 = np.sqrt(np.mean((V0_NN(x_valid_pt).detach().cpu().numpy() - V0_true)**2) / norm_V0_true)
+                error_V0 = torch.sqrt(torch.mean((V0_NN(x_valid) - V0_true)**2) / norm_V0_true).detach().cpu().numpy()
                 error_G = 0
                 if multiple_net_mode:
                     for t_idx in range(Nt):
-                        error_G = error_G + np.mean((Grad_NN[t_idx](x_valid_pt).detach().cpu().numpy() - Grad_true[t_idx,:,:])**2)
+                        error_G = error_G + torch.mean((Grad_NN[t_idx](x_valid) - Grad_true[t_idx,:,:])**2)
                 else:
                     for t_idx in range(Nt):
-                        error_G = error_G + np.mean((Grad_NN(t_idx*dt*torch.ones(N_valid,1).to(device),
-                                    x_valid_pt).detach().cpu().numpy() - Grad_true[t_idx,:,:])**2)
-                error_G = np.sqrt(error_G / norm_Grad_true)
+                        error_G = error_G + torch.mean((Grad_NN(t_idx*dt*torch.ones(N_valid,1).to(device),
+                                    x_valid) - Grad_true[t_idx,:,:])**2)
+                error_G = torch.sqrt(error_G / norm_Grad_true).detach().cpu().numpy()
             error_u = 0
             if not cheat_actor:
                 loss_actor = loss_actor.item()
                 if multiple_net_mode:
                     for t_idx in range(Nt):
-                        error_u = error_u + np.mean((Control_NN[t_idx](x_valid_pt).detach().cpu().numpy() - u_true[t_idx,:,:])**2)
+                        error_u = error_u + torch.mean((Control_NN[t_idx](x_valid) - u_true[t_idx,:,:])**2)
                 else:
                     for t_idx in range(Nt):
-                        error_u = error_u + np.mean((Control_NN(t_idx*dt*torch.ones(N_valid,1).to(device),
-                                                x_valid_pt).detach().cpu().numpy() - u_true[t_idx,:,:])**2)
-                error_u = np.sqrt(error_u / norm_u_true)
+                        error_u = error_u + torch.mean((Control_NN(t_idx*dt*torch.ones(N_valid,1).to(device),
+                                                x_valid) - u_true[t_idx,:,:])**2)
+                error_u = torch.sqrt(error_u / norm_u_true).detach().cpu().numpy()
             if args.verbose:
                 np.set_printoptions(precision=5, suppress=True)
                 print('step:', step, "J", np.around(J,decimals=6),
@@ -218,7 +219,7 @@ def train(model, all_nets, optimizer_scheduler, train_config, data_type, device,
     torch.save(all_nets_dict, name_start+'/nets.pt')
     return
 
-def validate(model, train_config, num_valid):
+def validate(model, train_config, device, data_type, num_valid):
     Nt = train_config['num_time_interval']
     Nx = train_config['valid_size']
     d = model.d
@@ -227,15 +228,16 @@ def validate(model, train_config, num_valid):
     for i in range(num_valid):
         dt = T / Nt
         sqrt_dt = np.sqrt(dt)
-        dWt = np.random.normal(0, sqrt_dt, size=(Nt, Nx, d))
+        dWt = torch.normal(0, sqrt_dt, size=(Nt, Nx, d))
         xt = model.sample_uniform(Nx,d)
+        xt = torch.tensor(xt, dtype=data_type).to(device)
         yt = model.V(0,xt)
         for t_idx in range(Nt):
             ut = model.u_star(t_idx*dt,xt)
             grad_yt = model.V_grad(t_idx*dt,xt)
-            yt = yt - model.r_np(xt,ut) * dt + model.diffu_y_np(xt, grad_yt, dWt[t_idx,:,:])
+            yt = yt - model.r(xt,ut) * dt + model.diffu_y(xt, grad_yt, dWt[t_idx,:,:])
             xt = xt + model.drift_x(xt,ut) * dt + model.diffu_x(xt, dWt[t_idx,:,:])
-        errors[i] = np.mean((yt-model.g_np(xt))**2)
+        errors[i] = torch.mean((yt-model.g(xt))**2).detach().cpu().numpy()
         Nt = Nt * 2
     print('validation errors:', errors)
     return

@@ -13,7 +13,7 @@
     },
     "net_config": {
       "num_hiddens": [10, 10],
-      "multiple_net_mode": true,
+      "multiple_net_mode": false,
       "num_trig_basis": 3,
       "net_type_u": "l2relu",
       "net_type_V0": "l2relu",
@@ -25,7 +25,7 @@
       "decay_a": 0.1,
       "lr_c": 0.1,
       "decay_c": 0.1,
-      "delta_tau": 1.0,
+      "delta_tau": 0.5,
       "num_critic_updates": 1,
       "num_actor_updates": 3,
       "num_time_interval": 10,

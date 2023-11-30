@@ -1,6 +1,16 @@
 """
 This is the main file for the actor-critic optimal control solver
 net_mode: 'single' or 'multiple' one network for all time steps or one network for each time step
+
+TODOs:
+network.py: arbitrary number of hidden layers
+try different critic loss
+
+Takeaways:
+actor need smaller stepzise, at lease as small as critic
+retrain for actor-critic and critic: the first step increase the error a lot, so I use smaller learning rate
+retrain for actor is very nice
+setting num_actor_updates > 1 is helpful
 """
 
 import torch
@@ -15,21 +25,6 @@ import equation as eqn
 import network
 import os
 
-'''
-TODOs:
-test GPU
-test float64
-network.py: arbitrary number of hidden layers
-the current actor update direction is only for LQ, move it to equation.py
-try different critic loss
-
-Takeaways:
-actor need smaller stepzise, at lease as small as critic
-retrain for actor-critic and critic: the first step increase the error a lot, so I use smaller learning rate
-retrain for actor is very nice
- setting num_actor_updates > 1 is helpful
-'''
-
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", default="./configs/LQ1d.json", type=str)
@@ -39,7 +34,7 @@ def parse_args():
     parser.add_argument("--debug_mode", default=False, action=argparse.BooleanOptionalAction)
     parser.add_argument("--multiple_net_mode", default=None, action=argparse.BooleanOptionalAction)
     parser.add_argument("--retrain", default=None, type=str) #format: model_name/nets.pt
-    parser.add_argument("--train_mode", default="actor-critic", type=str) # actor-critic, actor, critic, validation
+    parser.add_argument("--train_mode", default="actor-critic", type=str) # actor-critic, actor, critic, validation, network_capacity
     # command for no verbose: --no-verbose
     args = parser.parse_args()
     return args
@@ -85,7 +80,7 @@ def main():
     if train_mode == 'validation':
         print('validation mode for '+ problem_name)
         from solver import validate
-        validate(model, train_config, num_valid=6)
+        validate(model, train_config, device, data_type, 6)
         print('If the errors are small and roughly forms a geometric sequence with ratio 0.5, then the model is good.')
         return
     if multiple_net_mode:
@@ -93,7 +88,7 @@ def main():
     else:
         args.model_name = args.model_name + 'SN' # single net mode
     print('solving '+eqn_config['eqn_name']+ ' in '+str(eqn_config['dim'])+'d with train mode:', train_mode,
-        'model name:', args.model_name,', multiple_net_mode:', multiple_net_mode)
+        'model name:', args.model_name,'multiple_net_mode:', multiple_net_mode)
     
     # save the config in the model directory
     problem_dir = os.path.join('./results', problem_name)
@@ -105,7 +100,7 @@ def main():
 
     # construct neural network
     all_nets = {}
-    if train_mode == 'actor-critic' or train_mode == 'actor':
+    if train_mode in ['actor-critic', 'actor', 'network_capacity']:
         if multiple_net_mode:
             all_nets['Control'] = [getattr(network,net_config['net_type_u'])(config, 'u',device) for _ in range(Nt)]
             for net in all_nets['Control']:
@@ -114,7 +109,7 @@ def main():
             all_nets['Control'] = getattr(network,net_config['net_type_u']+'_t')(config, 'u',device)
             all_nets['Control'].type(data_type).to(device)
 
-    if train_mode == 'actor-critic' or train_mode == 'critic':
+    if train_mode in ['actor-critic', 'critic', 'network_capacity']:
         all_nets['V0'] = getattr(network,net_config['net_type_V0'])(config, 'V0',device)
         all_nets['V0'].type(data_type).to(device)
         if multiple_net_mode:
@@ -127,9 +122,10 @@ def main():
 
     if args.retrain: # load pretrained networks
         print('retrain from ', args.retrain)
+        assert train_mode in ['actor-critic', 'actor', 'critic'], 'retrain only support actor-critic, actor, critic'
         old_model_dir = os.path.join(problem_dir, args.retrain)
         all_dicts = torch.load(old_model_dir)
-        # actor-critic: load Grad and control; actor: load control; critic: load Grad
+        # actor-critic: load V0, Grad and control; actor: load control; critic: load V0, Grad
         if train_mode == 'actor-critic' or train_mode == 'actor':
             if multiple_net_mode:
                 for i in range(Nt):
@@ -144,9 +140,15 @@ def main():
             else:
                 all_nets['Grad'].load_state_dict(all_dicts['Grad'])
 
+    # test net errors in debug mode
+    # if args.debug_mode:
+    #     from debug import test_nets_errors
+    #     error_V0, error_G, error_u = test_nets_errors(model, all_nets, multiple_net_mode, train_mode, device, train_config, data_type)
+    #     print('error_V0:', error_V0, 'error_G:', error_G, 'error_u:', error_u)
+
     # set up the optimizer
     optimizer_scheduler = {}
-    if train_mode == 'actor-critic' or train_mode == 'actor':
+    if train_mode in ['actor-critic', 'actor', 'network_capacity']:
         if multiple_net_mode:
             actor_paramter = []
             for i in range(Nt):
@@ -156,7 +158,7 @@ def main():
             actor_optimizer = torch.optim.Adam(all_nets['Control'].parameters(), lr=train_config['lr_a'])
         actor_scheduler = MultiStepLR(actor_optimizer, milestones=train_config['milestones'], gamma=train_config['decay_a'])
         optimizer_scheduler['actor'] = (actor_optimizer, actor_scheduler)
-    if train_mode == 'actor-critic' or train_mode == 'critic':
+    if train_mode in ['actor-critic', 'critic', 'network_capacity']:
         critic_paramter = list(all_nets['V0'].parameters())
         if multiple_net_mode:
             for i in range(Nt):
@@ -173,6 +175,11 @@ def main():
     #         from debug import test_actor_update
     #         test_actor_update(model, all_nets, multiple_net_mode, train_mode, device, train_config, data_type)
     #         return
+        
+    if train_mode == 'network_capacity':
+        from debug import test_network_capacity
+        test_network_capacity(model, all_nets, optimizer_scheduler, train_config, data_type, device, multiple_net_mode, args)
+        return
 
     # train the model
     from solver import train
