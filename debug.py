@@ -143,6 +143,16 @@ def test_network_capacity(model, all_nets, optimizer_scheduler, train_config, da
     critic_optimizer, critic_scheduler = optimizer_scheduler['critic']
     V0_NN, Grad_NN = all_nets['V0'], all_nets['Grad']
     Control_NN = all_nets['Control']
+    if multiple_net_mode:
+        def compute_u_NN(t_idx,dt,x,Control_NN,device):
+            return Control_NN[t_idx](x)
+        def compute_Grad_NN(t_idx,dt,x,Grad_NN,device):
+            return Grad_NN[t_idx](x)
+    else:
+        def compute_u_NN(t_idx,dt,x,Control_NN,device):
+            return Control_NN(t_idx*dt*torch.ones(Nx,1).to(device),x)
+        def compute_Grad_NN(t_idx,dt,x,Grad_NN,device):
+            return Grad_NN(t_idx*dt*torch.ones(Nx,1).to(device),x)
 
     for step in range(train_config['num_iterations']+1):
         actor_optimizer.zero_grad()
@@ -150,7 +160,7 @@ def test_network_capacity(model, all_nets, optimizer_scheduler, train_config, da
         x = model.sample_uniform(Nx,d)
         x = torch.tensor(x, dtype=data_type).to(device)
         u_true = torch.zeros(Nt,Nx,d_c, dtype=data_type, device=device)
-        V0_true = model.V_pt(0,x)
+        V0_true = model.V(0,x)
         V0_NN_output = V0_NN(x)
         V0_err = torch.mean((V0_NN_output - V0_true)**2)
         V0_rel_err = torch.sqrt(V0_err / torch.mean(V0_true**2)).detach().cpu().numpy()
@@ -159,21 +169,23 @@ def test_network_capacity(model, all_nets, optimizer_scheduler, train_config, da
         Grad_norm = 0
         u_norm = 0
         for t_idx in range(Nt):
-            # for contorl net
+            # for control net
             u_true[t_idx,:,:] = model.u_star(t_idx*dt,x)
-            if multiple_net_mode:
-                u_NN_output = Control_NN[t_idx](x)
-            else:
-                u_NN_output = Control_NN(t_idx*dt*torch.ones(Nx,1).to(device),x)
+            # if multiple_net_mode:
+            #     u_NN_output = Control_NN[t_idx](x)
+            # else:
+            #     u_NN_output = Control_NN(t_idx*dt*torch.ones(Nx,1).to(device),x)
+            u_NN_output = compute_u_NN(t_idx,dt,x,Control_NN,device)
             u_err = u_err + torch.mean((u_NN_output - u_true[t_idx,:,:])**2)
             u_norm = u_norm + torch.mean(u_true[t_idx,:,:]**2)
 
             # for Grad net
             Grad_true = model.V_grad(t_idx*dt,x)
-            if multiple_net_mode:
-                Grad_NN_output = Grad_NN[t_idx](x)
-            else:
-                Grad_NN_output = Grad_NN(t_idx*dt*torch.ones(Nx,1).to(device),x)
+            # if multiple_net_mode:
+            #     Grad_NN_output = Grad_NN[t_idx](x)
+            # else:
+            #     Grad_NN_output = Grad_NN(t_idx*dt*torch.ones(Nx,1).to(device),x)
+            Grad_NN_output = compute_Grad_NN(t_idx,dt,x,Grad_NN,device)
             Grad_err = Grad_err + torch.mean((Grad_NN_output - Grad_true)**2)
             Grad_norm = Grad_norm + torch.mean(Grad_true**2)
         critic_loss = (V0_err + Grad_err / Nt) * 100
@@ -188,7 +200,7 @@ def test_network_capacity(model, all_nets, optimizer_scheduler, train_config, da
         # print errors
         Grad_rel_err = torch.sqrt(Grad_err / Grad_norm).detach().cpu().numpy()
         u_rel_err = torch.sqrt(u_err / u_norm).detach().cpu().numpy()
-        if step % train_config['logging_frequency'] == 0:
+        if step % train_config['logging_frequency'] == 0 and args.verbose:
             print('step:', step, 'V0_rel_err:', np.around(V0_rel_err,decimals=pcs),
                     'Grad_rel_err:', np.around(Grad_rel_err,decimals=pcs), 'u_rel_err:', np.around(u_rel_err,decimals=pcs))
     return

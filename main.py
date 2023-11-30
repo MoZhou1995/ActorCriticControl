@@ -3,7 +3,6 @@ This is the main file for the actor-critic optimal control solver
 net_mode: 'single' or 'multiple' one network for all time steps or one network for each time step
 
 TODOs:
-network.py: arbitrary number of hidden layers
 try different critic loss
 
 Takeaways:
@@ -28,13 +27,15 @@ import os
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", default="./configs/LQ1d.json", type=str)
+    parser.add_argument("--train_mode", default="actor-critic", type=str) # actor-critic, actor, critic, validation, network_capacity
     parser.add_argument("--model_name", default="test", type=str)
-    parser.add_argument("--random_seed", default=0, type=int)
     parser.add_argument('--verbose', default=True, action=argparse.BooleanOptionalAction)
     parser.add_argument("--debug_mode", default=False, action=argparse.BooleanOptionalAction)
     parser.add_argument("--multiple_net_mode", default=None, action=argparse.BooleanOptionalAction)
-    parser.add_argument("--retrain", default=None, type=str) #format: model_name/nets.pt
-    parser.add_argument("--train_mode", default="actor-critic", type=str) # actor-critic, actor, critic, validation, network_capacity
+    parser.add_argument("--retrain", default=None, type=str) #format: model_name/nets0.pt
+    parser.add_argument('--save_results', default=True, action=argparse.BooleanOptionalAction)
+    parser.add_argument('--num_iter', default=None, type=int)
+    parser.add_argument("--random_seed", default=0, type=int)
     # command for no verbose: --no-verbose
     args = parser.parse_args()
     return args
@@ -51,8 +52,15 @@ def main():
     if args.multiple_net_mode is not None:
         config['net_config']['multiple_net_mode'] = args.multiple_net_mode
 
-    
-    problem_name = config['eqn_config']['eqn_name']+str(config['eqn_config']['dim'])+'d'
+    if args.num_iter is not None:
+        config['train_config']['num_iterations'] = args.num_iter
+        if args.verbose:
+            print('set num_iterations to', args.num_iter)
+    train_mode = args.train_mode
+    infix = ''
+    if train_mode == 'critic' or train_mode == 'actor':
+        infix = train_mode
+    problem_name = config['eqn_config']['eqn_name']+infix+str(config['eqn_config']['dim'])+'d'
     if args.retrain:
         old_model_name = args.retrain[:args.retrain.find('/' or "\\")]
         old_config_dir = os.path.join('./results', problem_name, old_model_name, "config.json")
@@ -76,7 +84,6 @@ def main():
     
     Nt = train_config['num_time_interval']
     multiple_net_mode = net_config['multiple_net_mode']
-    train_mode = args.train_mode
     if train_mode == 'validation':
         print('validation mode for '+ problem_name)
         from solver import validate
@@ -141,10 +148,10 @@ def main():
                 all_nets['Grad'].load_state_dict(all_dicts['Grad'])
 
     # test net errors in debug mode
-    # if args.debug_mode:
-    #     from debug import test_nets_errors
-    #     error_V0, error_G, error_u = test_nets_errors(model, all_nets, multiple_net_mode, train_mode, device, train_config, data_type)
-    #     print('error_V0:', error_V0, 'error_G:', error_G, 'error_u:', error_u)
+    if args.debug_mode:
+        from debug import test_nets_errors
+        error_V0, error_G, error_u = test_nets_errors(model, all_nets, multiple_net_mode, train_mode, device, train_config, data_type)
+        print('test net errors. error_V0:', error_V0, 'error_G:', error_G, 'error_u:', error_u)
 
     # set up the optimizer
     optimizer_scheduler = {}
@@ -170,11 +177,11 @@ def main():
         optimizer_scheduler['critic'] = (critic_optimizer, critic_scheduler)
     
     # debug for actor update direction
-    # if args.debug_mode:
-    #     if train_mode == 'actor-critic' or train_mode == 'actor':
-    #         from debug import test_actor_update
-    #         test_actor_update(model, all_nets, multiple_net_mode, train_mode, device, train_config, data_type)
-    #         return
+    if args.debug_mode:
+        if train_mode == 'actor-critic' or train_mode == 'actor':
+            from debug import test_actor_update
+            test_actor_update(model, all_nets, multiple_net_mode, train_mode, device, train_config, data_type)
+            return
         
     if train_mode == 'network_capacity':
         from debug import test_network_capacity
@@ -183,7 +190,7 @@ def main():
 
     # train the model
     from solver import train
-    train(model, all_nets, optimizer_scheduler, train_config, data_type, device, multiple_net_mode, train_mode, args)
+    train(model, all_nets, optimizer_scheduler, train_config, data_type, device, multiple_net_mode, train_mode, args, model_dir)
     return
 
 if __name__ == '__main__':

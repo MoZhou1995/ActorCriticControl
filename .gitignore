@@ -8,4 +8,3 @@
 *.eps
 .vscode/
 plot_figures.py
-save.py
