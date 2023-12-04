@@ -16,6 +16,8 @@ parser.add_argument("--grid_search", default=False, action=argparse.BooleanOptio
 import os
 import argparse
 import json
+import numpy as np
+import itertools
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -23,7 +25,8 @@ def parse_args():
     parser.add_argument("--num_run", default=10, type=int)
     parser.add_argument("--python", default=False, action=argparse.BooleanOptionalAction)
     parser.add_argument("--debug", default=False, action=argparse.BooleanOptionalAction)
-    parser.add_argument("--grid_search", default=None, type=str) # grid1.json
+    parser.add_argument("--grid_search", default=None, type=str) # grids.json
+    parser.add_argument("--analyze_result", default=None, type=str) #./results/LQ1d/testSN
     args = parser.parse_args()
     return args
 
@@ -79,12 +82,16 @@ def main():
         
     if args.grid_search:
         print('Testing grid search for ' + name)
-        # import the file for grid search
-        # TODO: decide the format of grid1.json and finish the grid search
+        # import the file for grid search, format:
+        # {"lr_a": [0.05, 0.01],
+        # "lr_c": [0.05, 0.01],
+        # "num_critic_updates": [1,2,3],
+        # "num_actor_updates": [1,2,3]}
         grid_config_dir = os.path.join('./configs/grid_search',args.name, args.grid_search)
         f = open(grid_config_dir)
         grid_config = json.load(f)
         f.close()
+        print('Will test combinations of the following parameters:', grid_config)
 
         # the configs will be created beased on the basic config
         basic_config_dir = os.path.join('./configs', args.name+'.json')
@@ -93,7 +100,42 @@ def main():
         f.close()
         
         # create a list of configs for main.py in json format according to the grid_config
-        configs = []
+        param_names = list(grid_config.keys())
+        param_values = list(grid_config.values())
+        param_combinations = list(itertools.product(*param_values))
+
+        # configs = []
+        for j,combination in enumerate(param_combinations):
+            config = basic_config.copy()
+            # update the config
+            for i in range(len(param_names)):
+                config["train_config"][param_names[i]] = combination[i]
+            model_name = 'gridtest' + str(j)
+            # save the config
+            config_dir = os.path.join('./configs/grid_search',args.name, model_name+'.json')
+            with open(config_dir, 'w') as fp:
+                json.dump(config, fp)
+            # run the config
+            os.system(python_cmd + ' main.py --config ' + config_dir + ' --train_mode actor-critic --model_name ' \
+                + model_name + '--no-verbose --no-multiple_net_mode')
+            os.system(python_cmd + ' main.py --config ' + config_dir + ' --train_mode actor-critic --model_name ' \
+                + model_name + '--no-verbose --multiple_net_mode')
+        return
+    
+    if args.analyze_result:
+        # analyze the results
+        print('Analyzing the results for ' + args.analyze_result)
+        # find all npy files
+        npy_results = [file for file in os.listdir(args.analyze_result) if file.endswith('.npy')]
+        l = len(npy_results)
+        print('There are ' + str(l) + ' results in total.')
+        # analyze the results
+        for i in range(l):
+            # load the results
+            result_dir = os.path.join(args.analyze_result, npy_results[i])
+            result = np.load(result_dir)
+            print(result[-1])
+            
 
 if __name__ == '__main__':
     main()
