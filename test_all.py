@@ -26,7 +26,7 @@ def parse_args():
     parser.add_argument("--python", default=False, action=argparse.BooleanOptionalAction)
     parser.add_argument("--debug", default=False, action=argparse.BooleanOptionalAction)
     parser.add_argument("--grid_search", default=None, type=str) # grids.json
-    parser.add_argument("--analyze_result", default=None, type=str) #./results/LQ1d/testSN
+    parser.add_argument("--analyze_result", default=None, type=str) #./results/LQ1d/grid_search
     args = parser.parse_args()
     return args
 
@@ -114,19 +114,26 @@ def main():
             # save the config
             config_dir = os.path.join('./configs/grid_search',args.name, model_name+'.json')
             with open(config_dir, 'w') as fp:
-                json.dump(config, fp)
+                json.dump(config, fp, indent=4)
             # run the config
             os.system(python_cmd + ' main.py --config ' + config_dir + ' --train_mode actor-critic --model_name ' \
-                + model_name + '--no-verbose --no-multiple_net_mode')
+                + model_name + ' --no-verbose --no-multiple_net_mode --grid_search')
             os.system(python_cmd + ' main.py --config ' + config_dir + ' --train_mode actor-critic --model_name ' \
-                + model_name + '--no-verbose --multiple_net_mode')
+                + model_name + ' --no-verbose --multiple_net_mode --grid_search')
+        print('Testing grid search for ' + name + 'with grid' + args.grid_search + ' done. Please check if any error is reported.')
         return
     
     if args.analyze_result:
         # analyze the results
         print('Analyzing the results for ' + args.analyze_result)
         # find all npy files
-        npy_results = [file for file in os.listdir(args.analyze_result) if file.endswith('.npy')]
+        results_dirs = os.listdir(args.analyze_result)
+        # npy_results = [file for file in results_dir if file.endswith('.npy')]
+        npy_results = []
+        for result_dir in results_dirs:
+            for file in os.listdir(os.path.join(args.analyze_result, result_dir)):
+                if file.endswith('.npy'):
+                    npy_results.append(os.path.join(result_dir, file))
         l = len(npy_results)
         print('There are ' + str(l) + ' results in total.')
         # analyze the results

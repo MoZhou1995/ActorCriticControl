@@ -2,17 +2,17 @@
     "eqn_config": {
       "_comment": "linear quadric regulator",
       "eqn_name": "LQ",
-      "dim": 5,
-      "d_c": 5,
-      "d_w": 5,
+      "dim": 10,
+      "d_c": 10,
+      "d_w": 10,
       "gamma": 0.1,
       "beta0": 0.2,
-      "beta": [0.1, 0.1, 0.1, 0, 0],
+      "beta": [0.1, 0.1, 0.1, 0, 0, 0, 0, 0, 0 ,0],
       "sigma_bar": 1.0,
       "T": 0.1
     },
     "net_config": {
-      "num_hiddens": [50, 50],
+      "num_hiddens": [80, 80],
       "multiple_net_mode": false,
       "num_trig_basis": 3,
       "net_type_u": "l2relu",
