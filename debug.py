@@ -1,5 +1,7 @@
 import numpy as np
 import torch
+import os
+import matplotlib.pyplot as plt
 pcs = 5
 
 def test_nets_errors(model, all_nets, multiple_net_mode, train_mode, device, train_config, data_type):
@@ -12,7 +14,7 @@ def test_nets_errors(model, all_nets, multiple_net_mode, train_mode, device, tra
     dt = model.T / Nt
     sqrt_dt = np.sqrt(dt)
     N_valid = train_config['valid_size']
-    x_valid = model.sample_uniform(N_valid,d)
+    x_valid = model.sample(N_valid,d)
     x_valid = torch.tensor(x_valid, dtype=data_type).to(device)
     V0_true = model.V(0,x_valid)
     norm_V0_true = torch.mean(V0_true**2)
@@ -83,7 +85,7 @@ def test_actor_update(model, all_nets, multiple_net_mode, train_mode, device, tr
     dt = model.T / Nt
     sqrt_dt = np.sqrt(dt)
     delta_tau = train_config['delta_tau']
-    x0 = model.sample_uniform(Nx,d)
+    x0 = model.sample(Nx,d)
     x = torch.zeros(Nt+1,Nx,d, dtype=data_type, device=device)
     x[0,:,:] = torch.tensor(x0, dtype=data_type, device=device)
     dW_t = torch.normal(0, sqrt_dt, size=(Nt, Nx, d_w)).to(device)
@@ -157,7 +159,7 @@ def test_network_capacity(model, all_nets, optimizer_scheduler, train_config, da
     for step in range(train_config['num_iterations']+1):
         actor_optimizer.zero_grad()
         critic_optimizer.zero_grad()
-        x = model.sample_uniform(Nx,d)
+        x = model.sample(Nx,d)
         x = torch.tensor(x, dtype=data_type).to(device)
         u_true = torch.zeros(Nt,Nx,d_c, dtype=data_type, device=device)
         V0_true = model.V(0,x)
@@ -195,4 +197,59 @@ def test_network_capacity(model, all_nets, optimizer_scheduler, train_config, da
         if step % train_config['logging_frequency'] == 0 and args.verbose:
             print('step:', step, 'V0_rel_err:', np.around(V0_rel_err,decimals=pcs),
                     'Grad_rel_err:', np.around(Grad_rel_err,decimals=pcs), 'u_rel_err:', np.around(u_rel_err,decimals=pcs))
+    return
+
+def plot_critic(model, all_nets, train_config, data_type, device, multiple_net_mode, model_dir):
+    # plot the value function and its gradient
+    Nx = train_config['valid_size']
+    Nt = train_config['num_time_interval']
+    x1 = np.linspace(0,2,Nx)
+    x = np.concatenate([x1.reshape(-1,1),np.ones((Nx,1))], axis=-1)
+    x = torch.tensor(x, dtype=data_type).to(device)
+    V0_true = model.V(0,x)
+    V0_NN = all_nets['V0']
+    V0_NN_output = V0_NN(x)
+    # plot V0
+    plt.figure()
+    plt.plot(x1,V0_true.detach().cpu().numpy(), label='true')
+    plt.plot(x1,V0_NN_output.detach().cpu().numpy(), label='NN')
+    plt.legend()
+    plt.title('V0')
+    plt.savefig(os.path.join(model_dir,'V0.png'))
+    plt.close()
+    # plot Grad
+    Grad_NN = all_nets['Grad']
+    Grad_true = model.V_grad(0,x)
+    if multiple_net_mode:
+        Grad_NN_output = Grad_NN[0](x)
+    else:
+        Grad_NN_output = Grad_NN(0,x)
+    plt.figure()
+    plt.plot(x1,Grad_true.detach().cpu().numpy(), label='true')
+    plt.plot(x1,Grad_NN_output.detach().cpu().numpy(), label='NN')
+    plt.legend()
+    plt.title('Grad')
+    plt.savefig(os.path.join(model_dir,'Grad.png'))
+    plt.close()
+    return
+
+def plot_actor(model, all_nets, train_config, data_type, device, multiple_net_mode, model_dir):
+    # plot the control
+    Nx = train_config['valid_size']
+    Nt = train_config['num_time_interval']
+    x1 = np.linspace(0,2,Nx)
+    x = np.concatenate([x1.reshape(-1,1),np.ones((Nx,1))], axis=-1)
+    x = torch.tensor(x, dtype=data_type).to(device)
+    u_true = torch.zeros(Nt,Nx,1, dtype=data_type, device=device)
+    Control_NN = all_nets['Control']
+    if multiple_net_mode:
+        u_NN = Control_NN[0](x)
+    else:
+        u_NN = Control_NN(0,x)
+    plt.figure()
+    plt.plot(x1,u_NN.detach().cpu().numpy(), label='NN')
+    plt.legend()
+    plt.title('Control')
+    plt.savefig(os.path.join(model_dir,'Control.png'))
+    plt.close()
     return

@@ -1,0 +1,39 @@
+{
+    "eqn_config": {
+      "_comment": "Ayagari",
+      "eqn_name": "Ayagari",
+      "dim": 2,
+      "d_c": 1,
+      "d_w": 2,
+      "alpha": 0.05,
+      "beta0": 0.2,
+      "beta1": 0.2,
+      "sigma_z": 1.0,
+      "sigma_a": 0.1,
+      "T": 0.1
+    },
+    "net_config": {
+      "num_hiddens": [40, 40],
+      "multiple_net_mode": false,
+      "num_trig_basis": 3,
+      "net_type_u": "l2reluwp",
+      "net_type_V0": "l2reluw",
+      "net_type_G": "l2reluwm1",
+      "dtype": "float32"
+    },
+    "train_config":{
+      "lr_a": 0.05,
+      "decay_a": 0.1,
+      "lr_c": 0.1,
+      "decay_c": 0.1,
+      "delta_tau": 0.5,
+      "num_critic_updates": 1,
+      "num_actor_updates": 3,
+      "num_time_interval": 10,
+      "num_iterations": 500,
+      "milestones":[300],
+      "batch_size": 1000,
+      "valid_size": 1000,
+      "logging_frequency": 50
+    }
+}

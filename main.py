@@ -155,10 +155,10 @@ def main():
                 all_nets['Grad'].load_state_dict(all_dicts['Grad'])
 
     # test net errors in debug mode
-    if args.debug_mode:
-        from debug import test_nets_errors
-        error_V0, error_G, error_u = test_nets_errors(model, all_nets, multiple_net_mode, train_mode, device, train_config, data_type)
-        print('test net errors. error_V0:', error_V0, 'error_G:', error_G, 'error_u:', error_u)
+    # if args.debug_mode:
+    #     from debug import test_nets_errors
+    #     error_V0, error_G, error_u = test_nets_errors(model, all_nets, multiple_net_mode, train_mode, device, train_config, data_type)
+    #     print('test net errors. error_V0:', error_V0, 'error_G:', error_G, 'error_u:', error_u)
 
     # set up the optimizer
     optimizer_scheduler = {}
@@ -184,11 +184,11 @@ def main():
         optimizer_scheduler['critic'] = (critic_optimizer, critic_scheduler)
     
     # debug for actor update direction
-    if args.debug_mode:
-        if train_mode == 'actor-critic' or train_mode == 'actor':
-            from debug import test_actor_update
-            test_actor_update(model, all_nets, multiple_net_mode, train_mode, device, train_config, data_type)
-            return
+    # if args.debug_mode:
+    #     if train_mode == 'actor-critic' or train_mode == 'actor':
+    #         from debug import test_actor_update
+    #         test_actor_update(model, all_nets, multiple_net_mode, train_mode, device, train_config, data_type)
+    #         return
         
     if train_mode == 'network_capacity':
         from debug import test_network_capacity

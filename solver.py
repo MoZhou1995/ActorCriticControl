@@ -23,7 +23,7 @@ def train(model, all_nets, optimizer_scheduler, train_config, data_type, device,
     num_actor_updates = train_config['num_actor_updates']
 
     # generate validation data
-    x_valid = model.sample_uniform(N_valid,d)
+    x_valid = model.sample(N_valid,d)
     x_valid = torch.tensor(x_valid, dtype=data_type).to(device)
     dW_t_valid = torch.normal(0, sqrt_dt, size=(Nt, N_valid, d_w)).to(device)
     V0_true = model.V(0,x_valid)
@@ -162,12 +162,18 @@ def train(model, all_nets, optimizer_scheduler, train_config, data_type, device,
                     V_grad = compute_V_grad(Grad_NN,t_idx,t_idx*dt,x_valid,device)
                     error_Grad = error_Grad + torch.mean((V_grad - Grad_true[t_idx,:,:])**2)
                 error_Grad = torch.sqrt(error_Grad / norm_Grad_true).detach().cpu().numpy()
+                if args.debug_mode:
+                    from debug import plot_critic
+                    plot_critic(model, all_nets, train_config, data_type, device, multiple_net_mode, model_dir)
             if not cheat_actor:
                 loss_actor = loss_actor.item()
                 for t_idx in range(Nt):
                     u = compute_u(Control_NN,t_idx,t_idx*dt,x_valid,device)
                     error_u = error_u + torch.mean((u - u_true[t_idx,:,:])**2)
                 error_u = torch.sqrt(error_u / norm_u_true).detach().cpu().numpy()
+                if args.debug_mode:
+                    from debug import plot_actor
+                    plot_actor(model, all_nets, train_config, data_type, device, multiple_net_mode, model_dir)
             if args.verbose:
                 np.set_printoptions(precision=5, suppress=True)
                 print('step:', step, "J", np.around(J,decimals=6),
@@ -208,7 +214,7 @@ def validate(model, train_config, device, data_type, num_valid):
         dt = T / Nt
         sqrt_dt = np.sqrt(dt)
         dWt = torch.normal(0, sqrt_dt, size=(Nt, Nx, d)).to(device)
-        xt = model.sample_uniform(Nx,d)
+        xt = model.sample(Nx,d)
         xt = torch.tensor(xt, dtype=data_type).to(device)
         yt = model.V(0,xt)
         for t_idx in range(Nt):
