@@ -114,13 +114,13 @@ def test_actor_update(model, all_nets, multiple_net_mode, train_mode, device, tr
         
         # compute update direction
         if train_mode == 'actor':
-            Grad_G[t_idx,:,:] = - model.V_grad(t_idx*dt,x[t_idx,:,:])
+            V_grad = model.V_grad(t_idx*dt,x[t_idx,:,:])
         else: # train_mode == 'actor-critic'
             if multiple_net_mode:
-                Grad_G[t_idx,:,:] = - Grad_NN[t_idx](x[t_idx,:,:]).detach()
+                V_grad = Grad_NN[t_idx](x[t_idx,:,:]).detach()
             else:
-                Grad_G[t_idx,:,:] = - Grad_NN(t_idx*dt*torch.ones(Nx,1).to(device),x[t_idx,:,:]).detach()
-        Grad_G[t_idx,:,:] = Grad_G[t_idx,:,:] - u_NN[t_idx,:,:]
+                V_grad = Grad_NN(t_idx*dt*torch.ones(Nx,1).to(device),x[t_idx,:,:]).detach()
+        Grad_G[t_idx,:,:] = model.Grad_G(t_idx*dt,x[t_idx,:,:],u_NN[t_idx,:,:],V_grad)
 
     norm_u_true = torch.mean(u_true**2)
     u_true_x0_norm = torch.mean(u_true_x0**2)
