@@ -24,7 +24,8 @@ import os
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", default="./configs/LQ1d.json", type=str)
-    parser.add_argument("--train_mode", default="actor-critic", type=str) # actor-critic, actor, critic, validation, network_capacity
+    # train_mode: actor-critic, actor, critic, vainlla, validation, network_capacity
+    parser.add_argument("--train_mode", default="actor-critic", type=str) 
     parser.add_argument("--model_name", default="test", type=str)
     parser.add_argument('--verbose', default=True, action=argparse.BooleanOptionalAction)
     parser.add_argument("--debug_mode", default=False, action=argparse.BooleanOptionalAction)
@@ -56,7 +57,7 @@ def main():
             print('set num_iterations to', args.num_iter)
     train_mode = args.train_mode
     infix = ''
-    if train_mode == 'critic' or train_mode == 'actor':
+    if train_mode in ['actor', 'critic', 'vanilla']:
         infix = train_mode
     problem_name = config['eqn_config']['eqn_name']+infix+str(config['eqn_config']['dim'])+'d'
     if args.retrain:
@@ -110,7 +111,7 @@ def main():
 
     # construct neural network
     all_nets = {}
-    if train_mode in ['actor-critic', 'actor', 'network_capacity']:
+    if train_mode in ['actor-critic', 'actor', 'network_capacity', 'vanilla']:
         if multiple_net_mode:
             all_nets['Control'] = [getattr(network,net_config['net_type_u'])(config, 'u',device) for _ in range(Nt)]
             for net in all_nets['Control']:
@@ -158,7 +159,7 @@ def main():
 
     # set up the optimizer
     optimizer_scheduler = {}
-    if train_mode in ['actor-critic', 'actor', 'network_capacity']:
+    if train_mode in ['actor-critic', 'actor', 'network_capacity', 'vanilla']:
         if multiple_net_mode:
             actor_paramter = []
             for i in range(Nt):
@@ -192,9 +193,14 @@ def main():
         return
 
     # train the model
-    from solver import train
-    train(model, all_nets, optimizer_scheduler, train_config, data_type, device, multiple_net_mode, train_mode, args, model_dir)
-    return
+    if train_mode == 'vanilla':
+        from solver import train_vanilla
+        train_vanilla(model, all_nets, optimizer_scheduler, train_config, data_type, device, multiple_net_mode, args, model_dir)
+        return
+    else:
+        from solver import train
+        train(model, all_nets, optimizer_scheduler, train_config, data_type, device, multiple_net_mode, train_mode, args, model_dir)
+        return
 
 if __name__ == '__main__':
     main()

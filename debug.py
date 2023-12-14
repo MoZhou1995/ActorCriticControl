@@ -240,7 +240,7 @@ def plot_actor(model, all_nets, train_config, data_type, device, multiple_net_mo
     x1 = np.linspace(0,2,Nx)
     x = np.concatenate([x1.reshape(-1,1),np.ones((Nx,1))], axis=-1)
     x = torch.tensor(x, dtype=data_type).to(device)
-    u_true = torch.zeros(Nt,Nx,1, dtype=data_type, device=device)
+    u_true = model.u_star(0,x)
     Control_NN = all_nets['Control']
     if multiple_net_mode:
         u_NN = Control_NN[0](x)
@@ -248,6 +248,7 @@ def plot_actor(model, all_nets, train_config, data_type, device, multiple_net_mo
         u_NN = Control_NN(0,x)
     plt.figure()
     plt.plot(x1,u_NN.detach().cpu().numpy(), label='NN')
+    plt.plot(x1,u_true.detach().cpu().numpy(), label='true')
     plt.legend()
     plt.title('Control')
     plt.savefig(os.path.join(model_dir,'Control.png'))
