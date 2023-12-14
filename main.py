@@ -2,15 +2,11 @@
 This is the main file for the actor-critic optimal control solver
 net_mode: 'single' or 'multiple' one network for all time steps or one network for each time step
 
-TODOs:
-write a grid search code to find the best parameters, including 
-lr_a, lr_c, num_time_interval, num_sample, delta_tau, decay
-
 Takeaways:
 actor need smaller stepzise, at lease as small as critic
 retrain for actor-critic and critic: the first step increase the error a lot, so I use smaller learning rate
-retrain for actor is very nice
 setting num_actor_updates > 1 is helpful
+delta_tau doesn't has to be small
 """
 
 import torch
