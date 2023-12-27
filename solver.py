@@ -216,13 +216,11 @@ def train_vanilla(model, all_nets, optimizer_scheduler, train_config, data_type,
     Nt = train_config['num_time_interval']
     dt = model.T / Nt
     sqrt_dt = np.sqrt(dt)
-    delta_tau = train_config['delta_tau']
     logging_freq = train_config['logging_frequency']
 
     # generate validation data
     x_valid = model.sample(N_valid,d)
     x_valid = torch.tensor(x_valid, dtype=data_type).to(device)
-    dW_t_valid = torch.normal(0, sqrt_dt, size=(Nt, N_valid, d_w)).to(device)
     u_true = torch.zeros([Nt,N_valid,d_c], dtype=data_type, device=device)
     norm_u_true = 0
     for t_idx in range(Nt):
@@ -260,7 +258,7 @@ def train_vanilla(model, all_nets, optimizer_scheduler, train_config, data_type,
         actor_scheduler.step()
 
         # print and record training information
-        if step % train_config['logging_frequency'] == 0:
+        if step % logging_freq == 0:
             error_u = 0
             loss_actor = J.detach().cpu().numpy()
             for t_idx in range(Nt):
@@ -273,7 +271,8 @@ def train_vanilla(model, all_nets, optimizer_scheduler, train_config, data_type,
                       'loss:', np.around(loss_actor,decimals=pcs),
                       'errors:', np.around(error_u,decimals=pcs),
                       'time:', np.around(time.time() - start_time,decimals=1))
-            train_history.append([step, loss_actor , error_u, time.time() - start_time])
+            train_history.append([step, loss_actor,0,0,0,0,0 , error_u, time.time() - start_time])
+            
     # save train history and save model
     if args.save_results:
         np.save(model_dir+'/train_history'+str(args.random_seed), train_history)
@@ -285,8 +284,6 @@ def train_vanilla(model, all_nets, optimizer_scheduler, train_config, data_type,
             all_nets_dict['Control'] = Control_NN.state_dict()
         torch.save(all_nets_dict, model_dir+'/nets'+str(args.random_seed)+'.pt')
     return
-
-
 
 def validate(model, train_config, device, data_type, num_valid):
     Nt = train_config['num_time_interval']

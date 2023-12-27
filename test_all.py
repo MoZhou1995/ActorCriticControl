@@ -2,7 +2,8 @@
 run all the numerical tests
 Below are the arguments for main.py
 parser.add_argument("--config", default="./configs/LQ1d.json", type=str)
-parser.add_argument("--train_mode", default="actor-critic", type=str) # actor-critic, actor, critic, validation, network_capacity
+# train_mode: actor-critic, actor, critic, vanilla, validation, netcap
+parser.add_argument("--train_mode", default="actor-critic", type=str) 
 parser.add_argument("--model_name", default="test", type=str)
 parser.add_argument('--verbose', default=True, action=argparse.BooleanOptionalAction)
 parser.add_argument("--debug_mode", default=False, action=argparse.BooleanOptionalAction)
@@ -12,6 +13,7 @@ parser.add_argument('--save_results', default=True, action=argparse.BooleanOptio
 parser.add_argument('--num_iter', default=None, type=int)
 parser.add_argument("--random_seed", default=0, type=int)
 parser.add_argument("--grid_search", default=False, action=argparse.BooleanOptionalAction)
+parser.add_argument("--record_every_step", default=False, action=argparse.BooleanOptionalAction)
 '''
 import os
 import argparse
@@ -27,6 +29,7 @@ def parse_args():
     parser.add_argument("--debug", default=False, action=argparse.BooleanOptionalAction)
     parser.add_argument("--grid_search", default=None, type=str) # grids.json
     parser.add_argument("--analyze_result", default=None, type=str) #./results/LQ1d/grid_search
+    parser.add_argument("--train_mode", default="actor-critic", type=str)
     args = parser.parse_args()
     return args
 
@@ -69,9 +72,9 @@ def main():
         # validation tests
         os.system(python_cmd + ' main.py --config ./configs/'+name+'.json --train_mode validation')
         # network capacity tests
-        os.system(python_cmd + ' main.py --config ./configs/'+name+'.json --train_mode network_capacity \
+        os.system(python_cmd + ' main.py --config ./configs/'+name+'.json --train_mode netcap \
                 --no-verbose --no-multiple_net_mode --num_iter 1')
-        os.system(python_cmd + ' main.py --config ./configs/'+name+'.json --train_mode network_capacity \
+        os.system(python_cmd + ' main.py --config ./configs/'+name+'.json --train_mode netcap \
                 --no-verbose --multiple_net_mode --num_iter 1')
         # actor update tests and net error test
         os.system(python_cmd + ' main.py --config ./configs/'+name+'.json --debug_mode --no-verbose --num_iter 1')
@@ -142,7 +145,29 @@ def main():
             result_dir = os.path.join(args.analyze_result, npy_results[i])
             result = np.load(result_dir)
             print(result[-1])
+        return
+    
+    # run all the tests
+    if args.name == 'all':
+        name_list = ['LQ1d', 'LQ5d', 'LQ10d', 'Ayagari2d']
+        print('Running all the tests in', name_list, 'for', args.train_mode)
+        for name in name_list:
+            for seeds in range(num_run):
+                os.system(python_cmd+' main.py --config=./configs/'+name+'.json --train_mode '+ args.train_mode\
+                        +' --no-verbose --record_every_step --random_seed='+str(seeds))
+    else:
+        print('Running all the tests for', args.name, 'for', args.train_mode)
+        if args.train_mode == 'all':
+            for mode in ['actor-critic', 'netcap', 'vanilla']:
+                for seeds in range(num_run):
+                    os.system(python_cmd+' main.py --config=./configs/'+args.name+'.json --train_mode '+ mode\
+                            +' --no-verbose --record_every_step --random_seed='+str(seeds))
+        else:
+            for seeds in range(num_run):
+                os.system(python_cmd+' main.py --config=./configs/'+args.name+'.json --train_mode '+ args.train_mode\
+                        +' --no-verbose --record_every_step --random_seed='+str(seeds))
+    print('Finish all the tests for '+args.name)
+    return
             
-
 if __name__ == '__main__':
     main()

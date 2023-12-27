@@ -9,10 +9,8 @@ def test_nets_errors(model, all_nets, multiple_net_mode, train_mode, device, tra
     d = model.d
     T = model.T
     d_c = model.d_c
-    d_w = model.d_w
     Nt = train_config['num_time_interval']
     dt = model.T / Nt
-    sqrt_dt = np.sqrt(dt)
     N_valid = train_config['valid_size']
     x_valid = model.sample(N_valid,d)
     x_valid = torch.tensor(x_valid, dtype=data_type).to(device)
@@ -134,7 +132,7 @@ def test_actor_update(model, all_nets, multiple_net_mode, train_mode, device, tr
     print('delta_tau', delta_tau_list,'error_u:', np.around(error_u,decimals=pcs), 'error_u uniform:', np.around(error_u_x0,decimals=pcs))
     return
 
-def test_network_capacity(model, all_nets, optimizer_scheduler, train_config, data_type, device, multiple_net_mode, args):
+def test_netcap(model, all_nets, optimizer_scheduler, train_config, data_type, device, multiple_net_mode, args, model_dir):
     # supervised learning for network capacity
     Nx = train_config['valid_size']
     Nt = train_config['num_time_interval']
@@ -155,7 +153,8 @@ def test_network_capacity(model, all_nets, optimizer_scheduler, train_config, da
             return Control_NN(t_idx*dt*torch.ones(Nx,1).to(device),x)
         def compute_Grad_NN(t_idx,dt,x,Grad_NN,device):
             return Grad_NN(t_idx*dt*torch.ones(Nx,1).to(device),x)
-
+        
+    train_history = [] # record training history
     for step in range(train_config['num_iterations']+1):
         actor_optimizer.zero_grad()
         critic_optimizer.zero_grad()
@@ -194,9 +193,23 @@ def test_network_capacity(model, all_nets, optimizer_scheduler, train_config, da
         # print errors
         Grad_rel_err = torch.sqrt(Grad_err / Grad_norm).detach().cpu().numpy()
         u_rel_err = torch.sqrt(u_err / u_norm).detach().cpu().numpy()
-        if step % train_config['logging_frequency'] == 0 and args.verbose:
-            print('step:', step, 'V0_rel_err:', np.around(V0_rel_err,decimals=pcs),
-                    'Grad_rel_err:', np.around(Grad_rel_err,decimals=pcs), 'u_rel_err:', np.around(u_rel_err,decimals=pcs))
+        if step % train_config['logging_frequency'] == 0:
+            train_history.append([step, 0,0,0,0, V0_rel_err, Grad_rel_err, u_rel_err,0])
+            if args.verbose:
+                print('step:', step, 'V0_rel_err:', np.around(V0_rel_err,decimals=pcs),
+                        'Grad_rel_err:', np.around(Grad_rel_err,decimals=pcs), 'u_rel_err:', np.around(u_rel_err,decimals=pcs))
+    if args.save_results:
+        np.save(model_dir+'/train_history'+str(args.random_seed), train_history)
+        all_nets_dict = {}
+        all_nets_dict['V0'] = V0_NN.state_dict()
+        if multiple_net_mode:
+            for t_idx in range(Nt):
+                all_nets_dict['Control'+str(t_idx)] = Control_NN[t_idx].state_dict()
+                all_nets_dict['Grad'+str(t_idx)] = Grad_NN[t_idx].state_dict()
+        else:
+            all_nets_dict['Control'] = Control_NN.state_dict()
+            all_nets_dict['Grad'] = Grad_NN.state_dict()
+        torch.save(all_nets_dict, model_dir+'/nets'+str(args.random_seed)+'.pt')
     return
 
 def plot_critic(model, all_nets, train_config, data_type, device, multiple_net_mode, model_dir):

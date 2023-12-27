@@ -24,7 +24,7 @@ import os
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", default="./configs/LQ1d.json", type=str)
-    # train_mode: actor-critic, actor, critic, vainlla, validation, network_capacity
+    # train_mode: actor-critic, actor, critic, vanilla, validation, netcap
     parser.add_argument("--train_mode", default="actor-critic", type=str) 
     parser.add_argument("--model_name", default="test", type=str)
     parser.add_argument('--verbose', default=True, action=argparse.BooleanOptionalAction)
@@ -35,6 +35,7 @@ def parse_args():
     parser.add_argument('--num_iter', default=None, type=int)
     parser.add_argument("--random_seed", default=0, type=int)
     parser.add_argument("--grid_search", default=False, action=argparse.BooleanOptionalAction)
+    parser.add_argument("--record_every_step", default=False, action=argparse.BooleanOptionalAction)
     # command for no verbose: --no-verbose
     args = parser.parse_args()
     return args
@@ -57,7 +58,7 @@ def main():
             print('set num_iterations to', args.num_iter)
     train_mode = args.train_mode
     infix = ''
-    if train_mode in ['actor', 'critic', 'vanilla']:
+    if train_mode in ['actor', 'critic', 'vanilla', 'netcap']:
         infix = train_mode
     problem_name = config['eqn_config']['eqn_name']+infix+str(config['eqn_config']['dim'])+'d'
     if args.retrain:
@@ -78,6 +79,9 @@ def main():
             args.model_name = args.model_name + 'MN' # multiple net mode
         else:
             args.model_name = args.model_name + 'SN' # single net mode
+    
+    if args.record_every_step:
+        config['train_config']['logging_frequency'] = 1
 
     eqn_config = config['eqn_config']
     net_config = config['net_config']
@@ -97,7 +101,7 @@ def main():
         return
     
     print('solving '+eqn_config['eqn_name']+ ' in '+str(eqn_config['dim'])+'d with train mode:', train_mode,
-        'model name:', args.model_name,'multiple_net_mode:', multiple_net_mode)
+        'model name:', args.model_name,'multiple_net_mode:', multiple_net_mode, 'seed:', args.random_seed)
     
     # save the config in the model directory
     problem_dir = os.path.join('./results', problem_name)
@@ -111,7 +115,7 @@ def main():
 
     # construct neural network
     all_nets = {}
-    if train_mode in ['actor-critic', 'actor', 'network_capacity', 'vanilla']:
+    if train_mode in ['actor-critic', 'actor', 'netcap', 'vanilla']:
         if multiple_net_mode:
             all_nets['Control'] = [getattr(network,net_config['net_type_u'])(config, 'u',device) for _ in range(Nt)]
             for net in all_nets['Control']:
@@ -120,7 +124,7 @@ def main():
             all_nets['Control'] = getattr(network,net_config['net_type_u']+'_t')(config, 'u',device)
             all_nets['Control'].type(data_type).to(device)
 
-    if train_mode in ['actor-critic', 'critic', 'network_capacity']:
+    if train_mode in ['actor-critic', 'critic', 'netcap']:
         all_nets['V0'] = getattr(network,net_config['net_type_V0'])(config, 'V0',device)
         all_nets['V0'].type(data_type).to(device)
         if multiple_net_mode:
@@ -159,7 +163,7 @@ def main():
 
     # set up the optimizer
     optimizer_scheduler = {}
-    if train_mode in ['actor-critic', 'actor', 'network_capacity', 'vanilla']:
+    if train_mode in ['actor-critic', 'actor', 'netcap', 'vanilla']:
         if multiple_net_mode:
             actor_paramter = []
             for i in range(Nt):
@@ -169,7 +173,7 @@ def main():
             actor_optimizer = torch.optim.Adam(all_nets['Control'].parameters(), lr=train_config['lr_a'])
         actor_scheduler = MultiStepLR(actor_optimizer, milestones=train_config['milestones'], gamma=train_config['decay_a'])
         optimizer_scheduler['actor'] = (actor_optimizer, actor_scheduler)
-    if train_mode in ['actor-critic', 'critic', 'network_capacity']:
+    if train_mode in ['actor-critic', 'critic', 'netcap']:
         critic_paramter = list(all_nets['V0'].parameters())
         if multiple_net_mode:
             for i in range(Nt):
@@ -187,9 +191,9 @@ def main():
     #         test_actor_update(model, all_nets, multiple_net_mode, train_mode, device, train_config, data_type)
     #         return
         
-    if train_mode == 'network_capacity':
-        from debug import test_network_capacity
-        test_network_capacity(model, all_nets, optimizer_scheduler, train_config, data_type, device, multiple_net_mode, args)
+    if train_mode == 'netcap':
+        from debug import test_netcap
+        test_netcap(model, all_nets, optimizer_scheduler, train_config, data_type, device, multiple_net_mode, args, model_dir)
         return
 
     # train the model
