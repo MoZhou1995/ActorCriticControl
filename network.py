@@ -211,7 +211,7 @@ class l2reluwp(nn.Module): # l2reluw but output is positive
         NN_out = self.linear2(NN_out)
         return torch.abs(NN_out+1)
     
-class l2reluwp_t(nn.Module): # l2reluw but output is positive, t is input
+class l2reluwp_t(nn.Module):
     def __init__(self, config, type,device):
         super().__init__()
         self.device = device
@@ -223,15 +223,13 @@ class l2reluwp_t(nn.Module): # l2reluw but output is positive, t is input
             outdim = self.dim
         elif type == "V0":
             outdim = 1
-        self.linear1 = nn.Linear(self.dim+1, net_size[0])
+        self.linear1 = nn.Linear(self.dim, net_size[0])
         self.linear2 = nn.Linear(net_size[1], outdim)
         self.activate = nn.ReLU()
 
     def forward(self, t, x):
         # x is N x d, output is N x 1
-        t_vec = t * torch.ones(x.shape[0],1).to(self.device)
-        tx = torch.cat((t_vec,x), dim=-1)
-        NN_out = self.linear1(tx)
+        NN_out = self.linear1(x)
         NN_out = self.activate(NN_out) + NN_out
         NN_out = self.linear2(NN_out)
         return torch.abs(NN_out+1)

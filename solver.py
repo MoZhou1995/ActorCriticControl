@@ -124,7 +124,6 @@ def train(model, all_nets, optimizer_scheduler, train_config, data_type, device,
             u_tgt = torch.zeros(Nt,Nx,d_c, dtype=data_type, device=device)
             J = 0
             # obtain direction for actor update
-            # TODO: the current update direction is only for LQ, move it to equation.py
             for t_idx in range(Nt):
                 t = t_idx*dt
                 u = compute_u(Control_NN,t_idx,t,x[t_idx,:,:],device)
