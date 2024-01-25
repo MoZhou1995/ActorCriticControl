@@ -27,10 +27,10 @@
       "decay_c": 0.1,
       "delta_tau": 0.5,
       "num_critic_updates": 1,
-      "num_actor_updates": 3,
+      "num_actor_updates": 2,
       "num_time_interval": 10,
-      "num_iterations": 200,
-      "milestones":[100],
+      "num_iterations": 300,
+      "milestones":[200],
       "batch_size": 500,
       "valid_size": 500,
       "logging_frequency": 10

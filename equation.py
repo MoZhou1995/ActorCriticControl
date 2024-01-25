@@ -22,8 +22,7 @@ class LQ(Equation):
         self.beta_pt = torch.tensor(beta, dtype=data_type, device=device)
 
     def sample(self, N_sample, d): # num_sample x d
-        x1 = np.random.normal(0, 1, size=(N_sample,1))
-        return np.random.normal(1, 2*np.pi, size=(N_sample,d))
+        return np.random.uniform(0, 2*np.pi, size=(N_sample,d))
     
     def V(self, t, x): # true value function in torch
         temp = torch.sum(self.beta_pt * torch.sin(x), dim=-1, keepdim=True)
