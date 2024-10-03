@@ -9,3 +9,4 @@
 .vscode/
 plot_figures.py
 /configs/grid_search
+test_all.py

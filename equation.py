@@ -54,10 +54,10 @@ class LQ(Equation):
     def Grad_G(self,t,x,u,grad_V): # gradient of G
         return - grad_V - u
     
-class Ayagari(Equation):
-    ''' Ayagari model '''
+class Aiyagari(Equation):
+    ''' Aiyagari model '''
     def __init__(self, eqn_config, data_type, device):
-        super(Ayagari,self).__init__(eqn_config)
+        super(Aiyagari,self).__init__(eqn_config)
         self.alpha = eqn_config['alpha']
         self.beta0 = eqn_config['beta0']
         self.beta1 = eqn_config['beta1']
